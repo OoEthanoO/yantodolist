@@ -10,7 +10,7 @@ interface Todo {
   title: string
   description?: string
   completed: boolean
-  priority: 'low' | 'high'
+  priority: 'low' | 'medium' | 'high'
   dueDate?: Date
   createdAt: Date
   updatedAt: Date
@@ -20,7 +20,7 @@ export default function Home() {
   const [todos, setTodos] = useState<Todo[]>([])
   const [newTodo, setNewTodo] = useState('')
   const [newDueDate, setNewDueDate] = useState('')
-  const [newPriority, setNewPriority] = useState<'low' | 'high'>('low')
+  const [newPriority, setNewPriority] = useState<'low' | 'medium' | 'high'>('medium')
   const [filter, setFilter] = useState<'all' | 'active' | 'completed' | 'overdue'>('all')
   const [sortBy, setSortBy] = useState<'created' | 'dueDate'>('created')
   const [priorityFirst, setPriorityFirst] = useState(true)
@@ -49,10 +49,10 @@ export default function Home() {
     const savedTodos = localStorage.getItem('yan-todos')
     if (savedTodos) {
       const parsedTodos = JSON.parse(savedTodos)
-      // Convert date strings back to Date objects and fix priority for backwards compatibility
+      // Convert date strings back to Date objects
       const todosWithDates = parsedTodos.map((todo: any) => ({
         ...todo,
-        priority: todo.priority === 'medium' ? 'low' : todo.priority, // Convert old medium to low
+        priority: todo.priority || 'medium', // Default to medium if no priority
         dueDate: todo.dueDate ? new Date(todo.dueDate) : undefined,
         createdAt: new Date(todo.createdAt),
         updatedAt: new Date(todo.updatedAt)
@@ -118,7 +118,7 @@ export default function Home() {
       setTodos([todo, ...todos])
       setNewTodo('')
       setNewDueDate('')
-      setNewPriority('low')
+      setNewPriority('medium')
     }
   }
 
@@ -162,7 +162,7 @@ export default function Home() {
     setEditDateValue('')
   }
 
-  const updateTodoPriority = (id: string, priority: 'low' | 'high') => {
+  const updateTodoPriority = (id: string, priority: 'low' | 'medium' | 'high') => {
     setTodos(todos.map(todo =>
       todo.id === id
         ? { ...todo, priority, updatedAt: new Date() }
@@ -170,9 +170,11 @@ export default function Home() {
     ))
   }
 
-  const togglePriority = (id: string, currentPriority: 'low' | 'high') => {
-    const newPriority = currentPriority === 'low' ? 'high' : 'low'
-    updateTodoPriority(id, newPriority)
+  const togglePriority = (id: string, currentPriority: 'low' | 'medium' | 'high') => {
+    const priorities: ('low' | 'medium' | 'high')[] = ['low', 'medium', 'high']
+    const currentIndex = priorities.indexOf(currentPriority)
+    const nextIndex = (currentIndex + 1) % priorities.length
+    updateTodoPriority(id, priorities[nextIndex])
   }
 
   const isOverdue = (todo: Todo) => {
@@ -213,8 +215,9 @@ export default function Home() {
         weight = 1 / 7
       }
 
-      // Apply priority multiplier (equivalent to isForSchool in Swift)
-      weight *= (todo.priority === 'high' ? 2 : 1)
+      // Apply priority multiplier: low=0.5, medium=1, high=2
+      const priorityMultiplier = todo.priority === 'high' ? 2 : todo.priority === 'medium' ? 1 : 0.5
+      weight *= priorityMultiplier
 
       weights[todo.id] = weight
       sum += weight
@@ -359,10 +362,10 @@ export default function Home() {
     if (filter === 'overdue') return isOverdue(todo)
     return true
   }).sort((a, b) => {
-    // Priority sorting: high priority first (only if priorityFirst is enabled)
+    // Priority sorting: high -> medium -> low (only if priorityFirst is enabled)
     if (priorityFirst && a.priority !== b.priority) {
-      if (a.priority === 'high' && b.priority === 'low') return -1
-      if (a.priority === 'low' && b.priority === 'high') return 1
+      const priorityOrder = { 'high': 3, 'medium': 2, 'low': 1 }
+      return priorityOrder[b.priority] - priorityOrder[a.priority]
     }
     
     if (sortBy === 'dueDate') {
@@ -790,6 +793,18 @@ export default function Home() {
                   Low
                 </button>
                 <button
+                  onClick={() => setNewPriority('medium')}
+                  className={`px-3 py-1 rounded text-sm font-medium transition-colors flex items-center gap-1 ${
+                    newPriority === 'medium'
+                      ? 'bg-blue-500 text-white'
+                      : 'hover:bg-opacity-70'
+                  }`}
+                  style={newPriority !== 'medium' ? {color: 'var(--muted-foreground)'} : {}}
+                >
+                  <Flag size={14} />
+                  Medium
+                </button>
+                <button
                   onClick={() => setNewPriority('high')}
                   className={`px-3 py-1 rounded text-sm font-medium transition-colors flex items-center gap-1 ${
                     newPriority === 'high'
@@ -850,9 +865,13 @@ export default function Home() {
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                         recommendedTask.priority === 'high' 
                           ? 'bg-red-100 text-red-700' 
+                          : recommendedTask.priority === 'medium'
+                          ? 'bg-blue-100 text-blue-700'
                           : 'bg-green-100 text-green-700'
                       }`}>
-                        {recommendedTask.priority === 'high' ? '🔥 High Priority' : '📝 Low Priority'}
+                        {recommendedTask.priority === 'high' ? '🔥 High Priority' : 
+                         recommendedTask.priority === 'medium' ? '📋 Medium Priority' : 
+                         '📝 Low Priority'}
                       </span>
                     </div>
                     <h3 className="font-medium text-lg mb-1" style={{color: 'var(--card-foreground)'}}>
@@ -1029,14 +1048,21 @@ export default function Home() {
                         className={`px-2 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 hover:opacity-80 ${
                           todo.priority === 'high'
                             ? 'bg-red-100 text-red-700 border border-red-200'
+                            : todo.priority === 'medium'
+                            ? 'bg-blue-100 text-blue-700 border border-blue-200'
                             : 'bg-green-100 text-green-700 border border-green-200'
                         }`}
-                        title={`Click to change to ${todo.priority === 'high' ? 'low' : 'high'} priority`}
+                        title={`Click to cycle priority (currently ${todo.priority})`}
                       >
                         {todo.priority === 'high' ? (
                           <>
                             <ArrowUp size={10} />
                             High
+                          </>
+                        ) : todo.priority === 'medium' ? (
+                          <>
+                            <Flag size={10} />
+                            Medium
                           </>
                         ) : (
                           <>
@@ -1229,9 +1255,9 @@ export default function Home() {
           </div>
           <div>
             <p className="text-2xl font-bold text-purple-500">
-              {todos.filter(t => t.priority === 'high' && !t.completed).length}
+              {todos.filter(t => (t.priority === 'high' || t.priority === 'medium') && !t.completed).length}
             </p>
-            <p style={{color: 'var(--muted-foreground)'}}>High Priority</p>
+            <p style={{color: 'var(--muted-foreground)'}}>High + Medium</p>
           </div>
         </div>
       </div>
