@@ -2,7 +2,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Check, Trash2, Calendar, User, Clock, AlertCircle, Edit3, Save, X, Flag, ArrowUp, ArrowDown, SortAsc, Settings, Sparkles } from 'lucide-react'
+import { Plus, Check, Trash2, Calendar, User, Clock, AlertCircle, Edit3, Save, X, Flag, ArrowUp, ArrowDown, SortAsc, Settings, Sparkles, Download, Upload } from 'lucide-react'
 import { format, isAfter, isBefore, startOfDay, addDays } from 'date-fns'
 
 interface Todo {
@@ -10,7 +10,7 @@ interface Todo {
   title: string
   description?: string
   completed: boolean
-  priority: 'low' | 'medium' | 'high'
+  priority: 'low' | 'high'
   dueDate?: Date
   createdAt: Date
   updatedAt: Date
@@ -20,7 +20,7 @@ export default function Home() {
   const [todos, setTodos] = useState<Todo[]>([])
   const [newTodo, setNewTodo] = useState('')
   const [newDueDate, setNewDueDate] = useState('')
-  const [newPriority, setNewPriority] = useState<'low' | 'medium' | 'high'>('medium')
+  const [newPriority, setNewPriority] = useState<'low' | 'high'>('low')
   const [filter, setFilter] = useState<'all' | 'active' | 'completed' | 'overdue'>('all')
   const [sortBy, setSortBy] = useState<'created' | 'dueDate'>('created')
   const [priorityFirst, setPriorityFirst] = useState(true)
@@ -43,16 +43,24 @@ export default function Home() {
   const [useCustomBase, setUseCustomBase] = useState(false)
   const [customBase, setCustomBase] = useState(2.93)
   const [customBaseInput, setCustomBaseInput] = useState('2.93')
+  const [useHalfWeight, setUseHalfWeight] = useState(false)
+  const [lastRecommendationTime, setLastRecommendationTime] = useState<string | null>(null)
+  const [isYanResultsOutdated, setIsYanResultsOutdated] = useState(false)
+  const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
+  
+  // Real-time calculated values for display
+  const [currentSum, setCurrentSum] = useState<number>(0)
+  const [currentProbabilities, setCurrentProbabilities] = useState<number[]>([])
 
   // Load todos from localStorage on mount
   useEffect(() => {
     const savedTodos = localStorage.getItem('yan-todos')
     if (savedTodos) {
       const parsedTodos = JSON.parse(savedTodos)
-      // Convert date strings back to Date objects
+      // Convert date strings back to Date objects and migrate medium priority to low
       const todosWithDates = parsedTodos.map((todo: any) => ({
         ...todo,
-        priority: todo.priority || 'medium', // Default to medium if no priority
+        priority: todo.priority === 'medium' ? 'low' : (todo.priority || 'low'), // Migrate medium to low, default to low if no priority
         dueDate: todo.dueDate ? new Date(todo.dueDate) : undefined,
         createdAt: new Date(todo.createdAt),
         updatedAt: new Date(todo.updatedAt)
@@ -78,8 +86,63 @@ export default function Home() {
           setCustomBase(preferences.customBase)
           setCustomBaseInput(preferences.customBase.toString())
         }
+        if (typeof preferences.useHalfWeight === 'boolean') setUseHalfWeight(preferences.useHalfWeight)
       } catch (error) {
         console.log('Error loading preferences:', error)
+      }
+    }
+  }, [])
+
+  // Load saved recommendation from localStorage on mount
+  useEffect(() => {
+    const savedRecommendation = localStorage.getItem('yan-last-recommendation')
+    if (savedRecommendation) {
+      try {
+        const recommendation = JSON.parse(savedRecommendation)
+        if (recommendation.taskId && recommendation.generatedAt) {
+          // Find the task by ID in the current todos
+          const task = todos.find(t => t.id === recommendation.taskId)
+          if (task && !task.completed) {
+            setRecommendedTask(task)
+            setLastRecommendationTime(recommendation.generatedAt)
+          }
+        }
+      } catch (error) {
+        console.log('Error loading saved recommendation:', error)
+      }
+    }
+  }, [todos])
+
+  // Load saved YanAlgorithm results from localStorage on mount
+  useEffect(() => {
+    const savedYanResults = localStorage.getItem('yan-algorithm-results')
+    if (savedYanResults) {
+      try {
+        const results = JSON.parse(savedYanResults)
+        if (results.randomNumber !== undefined) setRandomNumber(results.randomNumber)
+        if (results.selectedCategory !== undefined) setSelectedCategory(results.selectedCategory)
+        if (results.generatedSum !== undefined) setGeneratedSum(results.generatedSum)
+        if (results.generatedRandomValue !== undefined) setGeneratedRandomValue(results.generatedRandomValue)
+        if (results.generatedAt) setGeneratedAt(results.generatedAt)
+      } catch (error) {
+        console.log('Error loading saved YanAlgorithm results:', error)
+      }
+    }
+  }, [])
+
+  // Load saved YanAlgorithm results from localStorage on mount
+  useEffect(() => {
+    const savedYanResults = localStorage.getItem('yan-algorithm-results')
+    if (savedYanResults) {
+      try {
+        const results = JSON.parse(savedYanResults)
+        if (results.randomNumber !== undefined) setRandomNumber(results.randomNumber)
+        if (results.selectedCategory !== undefined) setSelectedCategory(results.selectedCategory)
+        if (results.generatedSum !== undefined) setGeneratedSum(results.generatedSum)
+        if (results.generatedRandomValue !== undefined) setGeneratedRandomValue(results.generatedRandomValue)
+        if (results.generatedAt) setGeneratedAt(results.generatedAt)
+      } catch (error) {
+        console.log('Error loading saved YanAlgorithm results:', error)
       }
     }
   }, [])
@@ -99,10 +162,11 @@ export default function Home() {
       statsForNerds,
       numCategories,
       useCustomBase,
-      customBase
+      customBase,
+      useHalfWeight
     }
     localStorage.setItem('yan-todo-preferences', JSON.stringify(preferences))
-  }, [filter, sortBy, priorityFirst, advancedRecommendations, statsForNerds, numCategories, useCustomBase, customBase])
+  }, [filter, sortBy, priorityFirst, advancedRecommendations, statsForNerds, numCategories, useCustomBase, customBase, useHalfWeight])
 
   const addTodo = () => {
     if (newTodo.trim()) {
@@ -118,7 +182,7 @@ export default function Home() {
       setTodos([todo, ...todos])
       setNewTodo('')
       setNewDueDate('')
-      setNewPriority('medium')
+      setNewPriority('low')
     }
   }
 
@@ -128,6 +192,14 @@ export default function Home() {
         ? { ...todo, completed: !todo.completed, updatedAt: new Date() }
         : todo
     ))
+    
+    // Clear recommendation if the recommended task is being completed
+    if (recommendedTask && recommendedTask.id === id) {
+      const updatedTodo = todos.find(t => t.id === id)
+      if (updatedTodo && !updatedTodo.completed) { // If being marked as completed
+        dismissRecommendation()
+      }
+    }
   }
 
   const deleteTodo = (id: string) => {
@@ -162,7 +234,7 @@ export default function Home() {
     setEditDateValue('')
   }
 
-  const updateTodoPriority = (id: string, priority: 'low' | 'medium' | 'high') => {
+  const updateTodoPriority = (id: string, priority: 'low' | 'high') => {
     setTodos(todos.map(todo =>
       todo.id === id
         ? { ...todo, priority, updatedAt: new Date() }
@@ -170,8 +242,8 @@ export default function Home() {
     ))
   }
 
-  const togglePriority = (id: string, currentPriority: 'low' | 'medium' | 'high') => {
-    const priorities: ('low' | 'medium' | 'high')[] = ['low', 'medium', 'high']
+  const togglePriority = (id: string, currentPriority: 'low' | 'high') => {
+    const priorities: ('low' | 'high')[] = ['low', 'high']
     const currentIndex = priorities.indexOf(currentPriority)
     const nextIndex = (currentIndex + 1) % priorities.length
     updateTodoPriority(id, priorities[nextIndex])
@@ -215,8 +287,8 @@ export default function Home() {
         weight = 1 / 7
       }
 
-      // Apply priority multiplier: low=0.5, medium=1, high=2
-      const priorityMultiplier = todo.priority === 'high' ? 2 : todo.priority === 'medium' ? 1 : 0.5
+      // Apply priority multiplier: low=1, high=2
+      const priorityMultiplier = todo.priority === 'high' ? 2 : 1
       weight *= priorityMultiplier
 
       weights[todo.id] = weight
@@ -234,7 +306,53 @@ export default function Home() {
     }
   }, [todos, advancedRecommendations])
 
-  // Helper functions for custom base input handling
+  // Recalculate probabilities whenever any parameter that affects them changes
+  useEffect(() => {
+    calculateCurrentProbabilities()
+  }, [totalWeight, useHalfWeight, useCustomBase, customBase, numCategories])
+
+  // Initial calculation on component mount
+  useEffect(() => {
+    calculateCurrentProbabilities()
+  }, [])
+
+  // Helper function to check if YanAlgorithm settings have changed
+  const checkYanResultsValidity = () => {
+    const savedYanResults = localStorage.getItem('yan-algorithm-results')
+    if (!savedYanResults) {
+      setIsYanResultsOutdated(false)
+      return
+    }
+    
+    try {
+      const results = JSON.parse(savedYanResults)
+      if (!results.settingsUsed) {
+        setIsYanResultsOutdated(false)
+        return
+      }
+      
+      const savedSettings = results.settingsUsed
+      const currentCalculatedBase = totalWeight || 2.93
+      const currentEffectiveBase = useCustomBase ? customBase : (useHalfWeight ? currentCalculatedBase / 2 : currentCalculatedBase)
+      
+      // Compare all relevant settings
+      const settingsMatch = (
+        savedSettings.numCategories === numCategories &&
+        savedSettings.useCustomBase === useCustomBase &&
+        savedSettings.useHalfWeight === useHalfWeight &&
+        Math.abs(savedSettings.effectiveBase - currentEffectiveBase) < 0.001 // Allow small floating point differences
+      )
+      
+      setIsYanResultsOutdated(!settingsMatch)
+    } catch (error) {
+      setIsYanResultsOutdated(false)
+    }
+  }
+
+  // Check validity whenever relevant settings change
+  useEffect(() => {
+    checkYanResultsValidity()
+  }, [numCategories, useCustomBase, customBase, useHalfWeight, totalWeight])
   const handleCustomBaseInputChange = (value: string) => {
     setCustomBaseInput(value)
     
@@ -263,6 +381,153 @@ export default function Home() {
     setCustomBaseInput('2.93')
   }
 
+  const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setNotification({ message, type })
+    setTimeout(() => setNotification(null), 4000)
+  }
+
+  // Calculate current base and probabilities in real-time
+  const calculateCurrentProbabilities = () => {
+    // Calculate the current base
+    let calculatedBase = totalWeight || 2.93
+    if (useHalfWeight) {
+      calculatedBase = calculatedBase / 2
+    }
+    const base = useCustomBase ? customBase : calculatedBase
+    
+    // Create categories dynamically based on numCategories
+    const categories = Array.from({ length: numCategories }, (_, i) => i + 1)
+    
+    // Calculate sum using base^(i+1) for each category
+    let sum = 0
+    for (let i = 0; i < categories.length; i++) {
+      sum += Math.pow(base, i + 1)
+    }
+    
+    // Calculate probabilities for each category
+    const probabilities = categories.map((_, i) => {
+      return (Math.pow(base, i + 1) / sum) * 100
+    })
+    
+    setCurrentSum(sum)
+    setCurrentProbabilities(probabilities)
+  }
+
+  const exportTasks = () => {
+    if (todos.length === 0) {
+      showNotification('No tasks to export. Add some tasks first!', 'info')
+      return
+    }
+    
+    try {
+      const dataToExport = {
+        tasks: todos,
+        exportedAt: new Date().toISOString(),
+        version: '1.0',
+        metadata: {
+          totalTasks: todos.length,
+          completedTasks: todos.filter(t => t.completed).length,
+          activeTasks: todos.filter(t => !t.completed).length
+        }
+      }
+      
+      const blob = new Blob([JSON.stringify(dataToExport, null, 2)], {
+        type: 'application/json'
+      })
+      
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `yan-todolist-export-${format(new Date(), 'yyyy-MM-dd-HH-mm')}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      
+      showNotification(`Successfully exported ${todos.length} tasks!`, 'success')
+    } catch (error) {
+      console.error('Export error:', error)
+      showNotification('Error exporting tasks. Please try again.', 'error')
+    }
+  }
+
+  const importTasks = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string
+        const data = JSON.parse(content)
+        
+        // Validate the import data structure
+        if (!data.tasks || !Array.isArray(data.tasks)) {
+          showNotification('Invalid file format. Please select a valid YanToDoList export file.', 'error')
+          return
+        }
+        
+        // Convert date strings back to Date objects and validate structure
+        const importedTasks = data.tasks.map((task: any, index: number) => {
+          try {
+            return {
+              id: task.id || `imported-${Date.now()}-${index}`,
+              title: task.title || 'Untitled Task',
+              description: task.description,
+              completed: Boolean(task.completed),
+              priority: task.priority === 'medium' ? 'low' : (['low', 'high'].includes(task.priority) ? task.priority : 'low'),
+              dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
+              createdAt: task.createdAt ? new Date(task.createdAt) : new Date(),
+              updatedAt: task.updatedAt ? new Date(task.updatedAt) : new Date()
+            }
+          } catch (taskError) {
+            console.warn(`Error parsing task ${index}:`, taskError)
+            return null
+          }
+        }).filter(Boolean) // Remove any failed tasks
+        
+        if (importedTasks.length === 0) {
+          showNotification('No valid tasks found in the import file.', 'error')
+          return
+        }
+        
+        // Ask user how to handle the import
+        const hasExistingTasks = todos.length > 0
+        let shouldReplace = false
+        
+        if (hasExistingTasks) {
+          shouldReplace = confirm(
+            `Found ${importedTasks.length} tasks to import.\n\n` +
+            `You currently have ${todos.length} tasks.\n\n` +
+            `Click OK to REPLACE all current tasks\n` +
+            `Click Cancel to ADD to current tasks`
+          )
+        }
+        
+        if (shouldReplace || !hasExistingTasks) {
+          // Replace all tasks
+          setTodos(importedTasks)
+          showNotification(`Replaced all tasks with ${importedTasks.length} imported tasks!`, 'success')
+        } else {
+          // Add to existing tasks
+          setTodos([...importedTasks, ...todos])
+          showNotification(`Added ${importedTasks.length} tasks to your existing ${todos.length} tasks!`, 'success')
+        }
+      } catch (error) {
+        console.error('Import error:', error)
+        showNotification('Error importing file. Please make sure it\'s a valid JSON file.', 'error')
+      }
+    }
+    
+    reader.onerror = () => {
+      showNotification('Error reading file. Please try again.', 'error')
+    }
+    
+    reader.readAsText(file)
+    // Reset the input so the same file can be selected again
+    event.target.value = ''
+  }
+
   const generateRandomRecommendation = () => {
     const activeTodos = todos.filter(todo => !todo.completed)
     
@@ -284,42 +549,57 @@ export default function Home() {
         return
       }
 
+      // Apply half weight option if enabled
+      const effectiveWeight = useHalfWeight ? totalWeight / 2 : totalWeight
+      
       // Generate random value and select task based on weighted probability
-      const randomValue = Math.random() * totalWeight
-      console.log(`Random Value: ${randomValue}, Total Weight: ${totalWeight}`)
+      const randomValue = Math.random() * effectiveWeight
+      console.log(`Random Value: ${randomValue}, Total Weight: ${totalWeight}, Effective Weight: ${effectiveWeight}`)
 
       let cumulative = 0
       let selectedTask: Todo | null = null
 
       for (const todo of activeTodos) {
-        cumulative += taskWeights[todo.id] || 0
+        const taskWeight = useHalfWeight ? (taskWeights[todo.id] || 0) / 2 : (taskWeights[todo.id] || 0)
+        cumulative += taskWeight
         if (randomValue < cumulative) {
           selectedTask = todo
           break
         }
       }
 
-      setRecommendedTask(selectedTask || activeTodos[0]) // Fallback to first task
+      const finalTask = selectedTask || activeTodos[0] // Fallback to first task
+      const generationTime = new Date().toLocaleString()
+      
+      setRecommendedTask(finalTask)
+      setLastRecommendationTime(generationTime)
       setIsGeneratingRecommendation(false)
+      
+      // Save recommendation to localStorage
+      const recommendationData = {
+        taskId: finalTask.id,
+        generatedAt: generationTime
+      }
+      localStorage.setItem('yan-last-recommendation', JSON.stringify(recommendationData))
     }, 800)
   }
 
   const dismissRecommendation = () => {
     setRecommendedTask(null)
+    setLastRecommendationTime(null)
+    localStorage.removeItem('yan-last-recommendation')
   }
 
   const generateRandomNumber = () => {
-    // Use custom base if enabled, otherwise use totalWeight as base (equivalent to base = 2.93 in Python)
-    const base = useCustomBase ? customBase : (totalWeight || 2.93) // Fallback to 2.93 if no tasks
+    // Use the current calculated sum instead of recalculating
+    const sum = currentSum
     
-    // Create categories dynamically based on numCategories [1, 2, 3, ...n]
-    const categories = Array.from({ length: numCategories }, (_, i) => i + 1)
-    
-    // Calculate sum using base^(i+1) for each category
-    let sum = 0
-    for (let i = 0; i < categories.length; i++) {
-      sum += Math.pow(base, i + 1)
+    // Calculate the current base for logging
+    let calculatedBase = totalWeight || 2.93
+    if (useHalfWeight) {
+      calculatedBase = calculatedBase / 2
     }
+    const base = useCustomBase ? customBase : calculatedBase
     
     // Generate random number between 0 and sum
     const randomValue = Math.random() * sum
@@ -328,30 +608,56 @@ export default function Home() {
     let cumulative = 0
     let selectedCat: number | null = null
     
-    for (let i = 0; i < categories.length; i++) {
+    for (let i = 0; i < numCategories; i++) {
       cumulative += Math.pow(base, i + 1)
       if (randomValue < cumulative) {
-        selectedCat = categories[i]
+        selectedCat = i + 1
         break
       }
     }
     
-    // Update all state variables
-    setRandomNumber(Math.floor(randomValue * 1000) / 1000) // 3 decimal places
-    setSelectedCategory(selectedCat)
-    setGeneratedSum(Math.floor(sum * 1000) / 1000) // 3 decimal places
-    setGeneratedRandomValue(Math.floor(randomValue * 1000) / 1000) // 3 decimal places
-    setGeneratedAt(new Date().toLocaleString())
+    // Update only the generation-specific state
+    const finalRandomNumber = Math.floor(randomValue * 1000) / 1000 // 3 decimal places
+    const finalSum = Math.floor(sum * 1000) / 1000 // 3 decimal places
+    const finalRandomValue = Math.floor(randomValue * 1000) / 1000 // 3 decimal places
+    const finalGeneratedAt = new Date().toLocaleString()
     
-    console.log(`Base: ${base} (${useCustomBase ? 'custom' : 'calculated'})`)
+    setRandomNumber(finalRandomNumber)
+    setSelectedCategory(selectedCat)
+    setGeneratedSum(finalSum)
+    setGeneratedRandomValue(finalRandomValue)
+    setGeneratedAt(finalGeneratedAt)
+    
+    // Save YanAlgorithm results to localStorage
+    const yanResults = {
+      randomNumber: finalRandomNumber,
+      selectedCategory: selectedCat,
+      generatedSum: finalSum,
+      generatedRandomValue: finalRandomValue,
+      generatedAt: finalGeneratedAt,
+      // Also save the settings used for this generation
+      settingsUsed: {
+        numCategories,
+        useCustomBase,
+        customBase: useCustomBase ? customBase : calculatedBase,
+        useHalfWeight,
+        effectiveBase: base
+      }
+    }
+    localStorage.setItem('yan-algorithm-results', JSON.stringify(yanResults))
+    
+    // Reset outdated flag since we just generated fresh results
+    setIsYanResultsOutdated(false)
+    
+    console.log(`Base: ${base} (${useCustomBase ? 'custom' : 'calculated'}${useHalfWeight && !useCustomBase ? ' with half weight' : ''})`)
     console.log(`Sum: ${sum}`)
     console.log(`Random number: ${randomValue}`)
     console.log(`Selected category: ${selectedCat}`)
     
-    // Log probabilities for all categories
-    for (let i = 0; i < categories.length; i++) {
-      console.log(`Chance of ${i + 1}: ${(Math.pow(base, i + 1) / sum * 100).toFixed(2)}%`)
-    }
+    // Log probabilities for all categories using current probabilities
+    currentProbabilities.forEach((probability, index) => {
+      console.log(`Chance of ${index + 1}: ${probability.toFixed(2)}%`)
+    })
     
     console.log(`Generated at: ${new Date().toLocaleString()}`)
   }
@@ -379,6 +685,54 @@ export default function Home() {
 
   return (
     <main className="min-h-screen">
+      {/* Notification Toast */}
+      {notification && (
+        <div 
+          className={`fixed top-4 right-4 z-50 px-6 py-4 rounded-lg shadow-lg border-l-4 transition-all duration-300 min-w-[300px] ${
+            notification.type === 'success' 
+              ? 'border-green-500 bg-green-50 text-green-800' 
+              : notification.type === 'error'
+              ? 'border-red-500 bg-red-50 text-red-800'
+              : 'border-blue-500 bg-blue-50 text-blue-800'
+          }`}
+          style={{
+            backgroundColor: notification.type === 'success' 
+              ? '#f0fdf4' 
+              : notification.type === 'error'
+              ? '#fef2f2'
+              : '#eff6ff'
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex-shrink-0">
+              {notification.type === 'success' && (
+                <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+              )}
+              {notification.type === 'error' && (
+                <svg className="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                </svg>
+              )}
+              {notification.type === 'info' && (
+                <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+              )}
+            </div>
+            <div className="flex-1">
+              <p className="font-medium">{notification.message}</p>
+            </div>
+            <button
+              onClick={() => setNotification(null)}
+              className="flex-shrink-0 ml-4 text-gray-400 hover:text-gray-600"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <header className="mb-8">
         <div className="relative text-center">
@@ -439,6 +793,58 @@ export default function Home() {
                 </div>
               </div>
             )}
+
+            {/* Data Management Section */}
+            <div className="mt-4 pt-4 border-t" style={{borderColor: 'var(--border)'}}>
+              <div className="mb-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="text-blue-500">💾</div>
+                  <div>
+                    <h3 className="font-medium" style={{color: 'var(--card-foreground)'}}>
+                      Data Management
+                    </h3>
+                    <p className="text-sm" style={{color: 'var(--muted-foreground)'}}>
+                      Export your tasks or import from a backup file
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="flex flex-col sm:flex-row gap-3">
+                  {/* Export Button */}
+                  <button
+                    onClick={exportTasks}
+                    className="flex-1 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center gap-2 font-medium"
+                    title="Export all tasks to a JSON file"
+                  >
+                    <Download size={16} />
+                    Export Tasks
+                  </button>
+                  
+                  {/* Import Button */}
+                  <label className="flex-1 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center gap-2 font-medium cursor-pointer">
+                    <Upload size={16} />
+                    Import Tasks
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={importTasks}
+                      className="hidden"
+                      title="Import tasks from a JSON file"
+                    />
+                  </label>
+                </div>
+                
+                <div className="mt-2 text-xs space-y-1" style={{color: 'var(--muted-foreground)'}}>
+                  <div className="flex items-center justify-between">
+                    <span>• Export: Download all tasks as JSON</span>
+                    <span className="font-mono px-2 py-1 rounded" style={{backgroundColor: 'var(--accent)'}}>
+                      {todos.length} tasks
+                    </span>
+                  </div>
+                  <div>• Import: Upload JSON to restore tasks</div>
+                </div>
+              </div>
+            </div>
 
             {/* Stats for Nerds Option */}
             <div className="mt-4 pt-4 border-t" style={{borderColor: 'var(--border)'}}>
@@ -608,8 +1014,57 @@ export default function Home() {
                   {!useCustomBase && (
                     <div className="text-xs" style={{color: 'var(--muted-foreground)'}}>
                       Using calculated base from task weights ({totalWeight > 0 ? totalWeight.toFixed(3) : '2.930'})
+                      {useHalfWeight && <span className="ml-1 text-orange-500 font-medium">(halved)</span>}
                     </div>
                   )}
+                </div>
+
+                {/* Half Weight Toggle */}
+                <div className="mb-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm font-medium" style={{color: 'var(--card-foreground)'}}>
+                        Use Half Weight:
+                      </label>
+                      <div 
+                        className="px-2 py-1 rounded text-xs font-bold"
+                        style={{
+                          backgroundColor: useHalfWeight ? 'var(--orange)' : 'var(--muted)',
+                          color: useHalfWeight ? 'white' : 'var(--muted-foreground)'
+                        }}
+                        title={useHalfWeight ? 'Using half of calculated weights' : 'Using full calculated weights'}
+                      >
+                        {useHalfWeight ? '½' : '1'}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setUseHalfWeight(!useHalfWeight)}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 ${
+                        useHalfWeight ? 'bg-orange-500' : 'bg-gray-300'
+                      }`}
+                      style={!useHalfWeight ? {backgroundColor: 'var(--border)'} : {}}
+                    >
+                      <span
+                        className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                          useHalfWeight ? 'translate-x-5' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  
+                  <div className="text-xs space-y-1" style={{color: 'var(--muted-foreground)'}}>
+                    <div>
+                      {useHalfWeight 
+                        ? 'Weights are divided by 2, creating more balanced probability distribution' 
+                        : 'Using full calculated weights for maximum recommendation accuracy'
+                      }
+                    </div>
+                    {useCustomBase && useHalfWeight && (
+                      <div className="text-orange-500 font-medium">
+                        Note: Half weight only affects calculated base, not custom base
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-3">
@@ -619,23 +1074,36 @@ export default function Home() {
                       <span style={{color: 'var(--muted-foreground)'}}>Base:</span>
                       <div className="flex items-center gap-1">
                         <span className="font-mono">
-                          {useCustomBase ? customBase.toFixed(3) : (totalWeight > 0 ? totalWeight.toFixed(3) : '2.930')}
+                          {useCustomBase 
+                            ? customBase.toFixed(3) 
+                            : (totalWeight > 0 ? (useHalfWeight ? (totalWeight / 2).toFixed(3) : totalWeight.toFixed(3)) : '2.930')
+                          }
                         </span>
-                        <span 
-                          className={`text-xs px-1 rounded font-medium ${
-                            useCustomBase 
-                              ? 'bg-orange-500 text-white' 
-                              : 'bg-blue-500 text-white'
-                          }`}
-                          title={useCustomBase ? 'Using custom base' : 'Using calculated base from task weights'}
-                        >
-                          {useCustomBase ? 'C' : 'A'}
-                        </span>
+                        <div className="flex gap-1">
+                          <span 
+                            className={`text-xs px-1 rounded font-medium ${
+                              useCustomBase 
+                                ? 'bg-orange-500 text-white' 
+                                : 'bg-blue-500 text-white'
+                            }`}
+                            title={useCustomBase ? 'Using custom base' : 'Using calculated base from task weights'}
+                          >
+                            {useCustomBase ? 'C' : 'A'}
+                          </span>
+                          {useHalfWeight && !useCustomBase && (
+                            <span 
+                              className="text-xs px-1 rounded font-medium bg-orange-500 text-white"
+                              title="Half weight applied"
+                            >
+                              ½
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div className="flex justify-between">
                       <span style={{color: 'var(--muted-foreground)'}}>Sum:</span>
-                      <span className="font-mono">{generatedSum || '?'}</span>
+                      <span className="font-mono">{currentSum.toFixed(3)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span style={{color: 'var(--muted-foreground)'}}>Random:</span>
@@ -652,34 +1120,52 @@ export default function Home() {
                     </div>
                   </div>
 
-                  {/* Dynamic Probability Display */}
-                  {generatedSum && (
-                    <div className="text-xs space-y-1" style={{color: 'var(--muted-foreground)'}}>
-                      {Array.from({ length: numCategories }, (_, i) => {
-                        const base = useCustomBase ? customBase : (totalWeight || 2.93)
-                        const probability = ((Math.pow(base, i + 1) / generatedSum) * 100).toFixed(2)
-                        return (
-                          <div key={i + 1} className="flex justify-between">
-                            <span>Chance of {i + 1}:</span>
-                            <span>{probability}%</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
+                  {/* Real-time Probability Display */}
+                  <div className="text-xs space-y-1" style={{color: 'var(--muted-foreground)'}}>
+                    <div className="font-medium mb-2" style={{color: 'var(--card-foreground)'}}>Category Probabilities:</div>
+                    {currentProbabilities.map((probability, index) => (
+                      <div key={index + 1} className="flex justify-between">
+                        <span>Chance of {index + 1}:</span>
+                        <span className="font-mono">{probability.toFixed(2)}%</span>
+                      </div>
+                    ))}
+                  </div>
 
                   {/* Generate Button */}
-                  <button
-                    onClick={generateRandomNumber}
-                    className="w-full px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-sm font-medium"
-                  >
-                    Generate Weighted Random
-                  </button>
+                  <div className="space-y-2">
+                    <button
+                      onClick={generateRandomNumber}
+                      className="w-full px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-sm font-medium"
+                    >
+                      Generate Weighted Random
+                    </button>
+                    
+                    {isYanResultsOutdated && generatedAt && (
+                      <div className="flex items-center justify-center gap-1 text-xs" style={{color: 'var(--muted-foreground)'}}>
+                        <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse"></div>
+                        <span>Current results are outdated</span>
+                      </div>
+                    )}
+                  </div>
 
-                  {/* Timestamp */}
+                  {/* Timestamp and Outdated Indicator */}
                   {generatedAt && (
-                    <div className="text-xs text-center" style={{color: 'var(--muted-foreground)'}}>
-                      Generated: {generatedAt}
+                    <div className="space-y-2">
+                      <div className="text-xs text-center" style={{color: 'var(--muted-foreground)'}}>
+                        Generated: {generatedAt}
+                      </div>
+                      {isYanResultsOutdated && (
+                        <div className="flex items-center justify-center gap-2 px-3 py-2 rounded-md border-l-4 border-orange-500" style={{backgroundColor: 'var(--muted)', color: 'var(--card-foreground)'}}>
+                          <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                          <span className="text-xs font-medium">Results may be outdated - settings have changed</span>
+                          <button
+                            onClick={generateRandomNumber}
+                            className="ml-2 px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
+                          >
+                            Update
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -708,14 +1194,30 @@ export default function Home() {
                         </span>
                         <div className="flex items-center gap-2">
                           <span className="font-mono" style={{color: 'var(--muted-foreground)'}}>
-                            {(taskWeights[todo.id] || 0).toFixed(4)}
+                            {useHalfWeight 
+                              ? ((taskWeights[todo.id] || 0) / 2).toFixed(4)
+                              : (taskWeights[todo.id] || 0).toFixed(4)
+                            }
                           </span>
                           <span 
                             className="text-xs px-1 rounded"
                             style={{backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)'}}
                           >
-                            {totalWeight > 0 ? ((taskWeights[todo.id] / totalWeight) * 100).toFixed(1) + '%' : '0%'}
+                            {totalWeight > 0 
+                              ? useHalfWeight 
+                                ? (((taskWeights[todo.id] / 2) / (totalWeight / 2)) * 100).toFixed(1) + '%'
+                                : ((taskWeights[todo.id] / totalWeight) * 100).toFixed(1) + '%'
+                              : '0%'
+                            }
                           </span>
+                          {useHalfWeight && (
+                            <span 
+                              className="text-xs px-1 rounded bg-orange-500 text-white font-bold"
+                              title="Half weight applied"
+                            >
+                              ½
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -793,18 +1295,6 @@ export default function Home() {
                   Low
                 </button>
                 <button
-                  onClick={() => setNewPriority('medium')}
-                  className={`px-3 py-1 rounded text-sm font-medium transition-colors flex items-center gap-1 ${
-                    newPriority === 'medium'
-                      ? 'bg-blue-500 text-white'
-                      : 'hover:bg-opacity-70'
-                  }`}
-                  style={newPriority !== 'medium' ? {color: 'var(--muted-foreground)'} : {}}
-                >
-                  <Flag size={14} />
-                  Medium
-                </button>
-                <button
                   onClick={() => setNewPriority('high')}
                   className={`px-3 py-1 rounded text-sm font-medium transition-colors flex items-center gap-1 ${
                     newPriority === 'high'
@@ -865,13 +1355,9 @@ export default function Home() {
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                         recommendedTask.priority === 'high' 
                           ? 'bg-red-100 text-red-700' 
-                          : recommendedTask.priority === 'medium'
-                          ? 'bg-blue-100 text-blue-700'
                           : 'bg-green-100 text-green-700'
                       }`}>
-                        {recommendedTask.priority === 'high' ? '🔥 High Priority' : 
-                         recommendedTask.priority === 'medium' ? '📋 Medium Priority' : 
-                         '📝 Low Priority'}
+                        {recommendedTask.priority === 'high' ? '🔥 High Priority' : '📝 Low Priority'}
                       </span>
                     </div>
                     <h3 className="font-medium text-lg mb-1" style={{color: 'var(--card-foreground)'}}>
@@ -883,6 +1369,12 @@ export default function Home() {
                         <span className="flex items-center gap-1">
                           <Clock size={12} />
                           Due {format(new Date(recommendedTask.dueDate), 'MMM d, yyyy')}
+                        </span>
+                      )}
+                      {lastRecommendationTime && (
+                        <span className="flex items-center gap-1 px-2 py-1 rounded-md" style={{backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)'}}>
+                          <Sparkles size={12} />
+                          Recommended {lastRecommendationTime}
                         </span>
                       )}
                     </div>
@@ -1048,8 +1540,6 @@ export default function Home() {
                         className={`px-2 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 hover:opacity-80 ${
                           todo.priority === 'high'
                             ? 'bg-red-100 text-red-700 border border-red-200'
-                            : todo.priority === 'medium'
-                            ? 'bg-blue-100 text-blue-700 border border-blue-200'
                             : 'bg-green-100 text-green-700 border border-green-200'
                         }`}
                         title={`Click to cycle priority (currently ${todo.priority})`}
@@ -1058,11 +1548,6 @@ export default function Home() {
                           <>
                             <ArrowUp size={10} />
                             High
-                          </>
-                        ) : todo.priority === 'medium' ? (
-                          <>
-                            <Flag size={10} />
-                            Medium
                           </>
                         ) : (
                           <>
@@ -1075,20 +1560,30 @@ export default function Home() {
                       {/* Weight Percentage Display - only show for active tasks when advanced recommendations are enabled */}
                       {advancedRecommendations && !todo.completed && taskWeights[todo.id] && totalWeight > 0 && (
                         <div 
-                          className="px-3 py-1 rounded-full text-xs font-bold border-2 shadow-sm transition-all hover:shadow-md"
+                          className={`px-3 py-1 rounded-full text-xs font-bold border-2 shadow-sm transition-all hover:shadow-md ${
+                            useHalfWeight 
+                              ? 'bg-orange-500 text-white border-orange-500' 
+                              : 'bg-blue-500 text-white border-blue-500'
+                          }`}
                           style={{
-                            backgroundColor: 'var(--primary)',
-                            color: 'white',
-                            borderColor: 'var(--primary)',
-                            boxShadow: '0 2px 4px rgba(59, 130, 246, 0.1)'
+                            boxShadow: useHalfWeight ? '0 2px 4px rgba(234, 88, 12, 0.1)' : '0 2px 4px rgba(59, 130, 246, 0.1)'
                           }}
-                          title={`Recommendation weight: ${((taskWeights[todo.id] / totalWeight) * 100).toFixed(1)}% chance of being selected`}
+                          title={useHalfWeight 
+                            ? `Recommendation weight (½): ${(((taskWeights[todo.id] / 2) / (totalWeight / 2)) * 100).toFixed(1)}% chance of being selected`
+                            : `Recommendation weight: ${((taskWeights[todo.id] / totalWeight) * 100).toFixed(1)}% chance of being selected`
+                          }
                         >
                           <div className="flex items-center gap-1">
                             <Sparkles size={10} className="animate-pulse" />
                             <span className="font-mono">
-                              {((taskWeights[todo.id] / totalWeight) * 100).toFixed(1)}%
+                              {useHalfWeight 
+                                ? (((taskWeights[todo.id] / 2) / (totalWeight / 2)) * 100).toFixed(1)
+                                : ((taskWeights[todo.id] / totalWeight) * 100).toFixed(1)
+                              }%
                             </span>
+                            {useHalfWeight && (
+                              <span className="font-bold text-xs">½</span>
+                            )}
                           </div>
                         </div>
                       )}
@@ -1255,9 +1750,9 @@ export default function Home() {
           </div>
           <div>
             <p className="text-2xl font-bold text-purple-500">
-              {todos.filter(t => (t.priority === 'high' || t.priority === 'medium') && !t.completed).length}
+              {todos.filter(t => t.priority === 'high' && !t.completed).length}
             </p>
-            <p style={{color: 'var(--muted-foreground)'}}>High + Medium</p>
+            <p style={{color: 'var(--muted-foreground)'}}>High Priority</p>
           </div>
         </div>
       </div>
