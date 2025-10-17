@@ -1,237 +1,327 @@
-# YanToDoList
+# 🚀 YanToDoList - Cloud-Sync Todo Application
 
-A modern, intelligent todo list application built with Next.js 15, featuring advanced task recommendation algorithms, data import/export capabilities, and a sleek, responsive UI with dark mode support.
+A modern, full-stack todo list application with cloud synchronization, user authentication, and advanced task recommendation algorithms. Built with Next.js 15, TypeScript, PostgreSQL, and NextAuth.js.
 
-## 🚀 Features
+## ✨ Features
 
-### Core Functionality
-- ✅ Create, edit, and delete tasks
-- 📅 Set due dates with visual status indicators
-- 🎯 Priority levels (Low, High)
-- 📊 Task statistics and analytics
-- 🌓 Automatic dark/light mode support
-- 💾 Local storage persistence
-- 📤 **Export tasks to JSON files**
-- 📥 **Import tasks from backup files**
+### 📝 **Task Management**
+- ✅ Create, edit, and delete todos
+- 🎯 Set priorities (Low, Medium, High)
+- � Due dates with overdue tracking
+- ✔️ Task completion tracking
+- � Rich task metadata and statistics
+- 📤 Export tasks to JSON files
+- 📥 Import tasks from backup files
 
-### Advanced Features
-- 🧠 **YanAlgorithm**: Intelligent task recommendation system
-- 🎲 **Weighted Random Selection**: Smart task suggestions based on priorities and due dates
-- ⚖️ **Half Weight Mode**: Use half of the calculated total weight for modified algorithm behavior
-- 🤓 **Debug Mode**: Detailed algorithm statistics and development tools
-- ⚙️ **Customizable Base Values**: Override calculated weights with custom values
-- 🔔 **Smart Notifications**: Toast notifications for user feedback
+### 🔐 **Authentication & Cloud Sync**
+- 🔑 Email/Password authentication
+- � Google OAuth integration
+- 🔒 Secure password hashing
+- ☁️ **Cloud storage** - Tasks saved to PostgreSQL database
+- 🔄 **Real-time sync** across devices (5-second polling)
+- 📱 **Multi-device support** - Sign in on any device
+- � **Automatic backups** - Never lose your data
 
-## 🧮 YanAlgorithm Explained
+### � **Smart Recommendations (YanAlgorithm)**
+  - Task priority
+  - Due dates and urgency
+  - Task age and weight
 
-The YanAlgorithm is a sophisticated weighted random selection system that helps prioritize tasks based on multiple factors:
+### 🎨 **Modern UI/UX**
 
-### Weight Calculation
-Tasks are assigned weights based on:
-- **Due Date Proximity**: Closer due dates = higher weight
-- **Priority Level**: High (2x), Low (1x) multipliers
-- **Overdue Tasks**: Special handling for overdue items
+ [x] Instant client-side number generation
+- Task statistics dashboard
+- Overdue task tracking
+- Completion rates
+- Priority distribution
+- Debug panel ("Stats for Nerds")
+- Algorithm transparency
 
-### Algorithm Modes
-1. **Standard Mode**: Uses calculated total weight as base
-2. **Half Weight Mode**: Uses 50% of total weight as base (more randomness)
-3. **Custom Base Mode**: Override with user-defined base value
+## �️ Tech Stack
 
-### Random Generation Process
-1. Calculate weighted probabilities for each category
-2. Generate random value within sum range
-3. Select category using cumulative distribution
-4. Higher weights = higher selection probability
-
-## 📁 Data Management
-
-### Export Functionality
-- **Comprehensive Export**: Exports all tasks with metadata
-- **JSON Format**: Clean, readable format with version tracking
-- **Timestamped Files**: Automatic filename with date/time
-- **Metadata Included**: Task counts and export information
-- **File Format**: `yan-todolist-export-YYYY-MM-DD-HH-mm.json`
-
-### Import Functionality
-- **Flexible Import**: Add to existing tasks or replace all
-- **Error Handling**: Validates file format and task structure
-- **Data Recovery**: Handles corrupted or partial data gracefully
-- **User Choice**: Confirms import method before proceeding
-- **Smart Validation**: Ensures imported tasks have valid properties
-
-### Export File Structure
-```json
-{
-  "tasks": [...],
-  "exportedAt": "2025-09-29T12:00:00.000Z",
-  "version": "1.0",
-  "metadata": {
-    "totalTasks": 10,
-    "completedTasks": 3,
-    "activeTasks": 7
-  }
-}
-```
-
-## 🎯 Getting Started
-
-### Prerequisites
-- Node.js 18+ 
-- npm, yarn, pnpm, or bun
-
-### Installation
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd yantodolist
-
-# Install dependencies
-npm install
-
-# Start development server
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-### Building for Production
-
-```bash
-# Build the application
-npm run build
-
-# Start production server
-npm start
-```
-
-## 🎨 UI Features
-
-### Modern Design
-- Clean, card-based layout
-- Smooth animations and transitions
-- Responsive design for all screen sizes
-- Professional color scheme
-- Toast notifications for user feedback
-
-### Dark Mode Support
-- Automatic system preference detection
-- Consistent theming across all components
-- CSS custom properties for seamless switching
-
-### Visual Indicators
-- 🔴 **Overdue**: Red border and indicators
-- 🟡 **Due Soon**: Yellow/orange indicators  
-- 🟢 **On Track**: Green indicators
-- ⭐ **Priority**: Color-coded priority badges (Green=Low, Red=High)
-- 💾 **Data Management**: Clear export/import controls
-
-## 🛠️ Technical Stack
-
-- **Framework**: Next.js 15 with App Router
-- **Language**: TypeScript
+- **Frontend**: Next.js 15 (App Router), React 19, TypeScript
 - **Styling**: Tailwind CSS 4
+- **Authentication**: NextAuth.js (Credentials + OAuth)
+- **Database**: PostgreSQL with Prisma ORM
+- **Data Fetching**: SWR for optimistic updates
 - **Icons**: Lucide React
 - **Date Handling**: date-fns
-- **Build Tool**: Turbopack
+- **Deployment**: Vercel-ready
 
-## 📈 Advanced Settings
+## 📦 Installation & Setup
 
-### Task Recommendations
-Enable AI-powered task suggestions that use the YanAlgorithm to recommend which task to work on next based on:
-- Task priorities
-- Due date urgency  
-- Historical completion patterns
+### Prerequisites
+- Node.js 18+
+- PostgreSQL database (Vercel Postgres, Neon, or local)
+- npm, yarn, pnpm, or bun
 
-### Half Weight Algorithm
-Activates modified weight calculation:
-- Reduces algorithm determinism
-- Increases randomness in selection
-- Useful for breaking routine patterns
-- Formula: `base = total_weight ÷ 2`
+### Local Development
 
-### Data Management
-- **Export**: Download all tasks as JSON with metadata
-- **Import**: Upload JSON files to restore or add tasks
-- **Backup Strategy**: Regular exports recommended for data safety
-- **Migration**: Easy transfer between devices or browsers
+1. **Clone the repository**
+   ```bash
+   git clone <your-repo-url>
+   cd yantodolist
+   ```
 
-### Stats for Nerds
-Developer mode that displays:
-- Individual task weights and probabilities
-- Algorithm execution details
-- Base calculation methods
-- Real-time debugging information
-- Import/export statistics
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-## 📱 Responsive Design
+3. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   ```
+   
+   Edit `.env` and add your values:
+   ```env
+   DATABASE_URL="postgresql://username:password@localhost:5432/yantodolist"
+   NEXTAUTH_SECRET="your-secret-here"  # Generate: openssl rand -base64 32
+   NEXTAUTH_URL="http://localhost:3000"
+   
+   # Optional: Google OAuth
+   GOOGLE_CLIENT_ID="your-google-client-id"
+   GOOGLE_CLIENT_SECRET="your-google-client-secret"
+   ```
 
-- **Mobile**: Optimized touch interface with accessible buttons
-- **Tablet**: Balanced layout and interactions
-- **Desktop**: Full feature set with keyboard shortcuts
+4. **Set up the database**
+   ```bash
+   npx prisma generate
+   npx prisma migrate dev --name init
+   ```
+
+5. **Run the development server**
+   ```bash
+   npm run dev
+   ```
+
+6. **Open [http://localhost:3000](http://localhost:3000)**
+
+### Database Management Tools
+
+```bash
+# View database in Prisma Studio
+npx prisma studio
+
+# Create new migration
+npx prisma migrate dev --name your_migration_name
+
+# Reset database (WARNING: Deletes all data)
+npx prisma migrate reset
+```
+
+## 🚀 Deployment to Vercel
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for comprehensive deployment instructions.
+
+**Quick Steps:**
+1. Push code to GitHub
+2. Import project in Vercel
+3. Add environment variables (DATABASE_URL, NEXTAUTH_SECRET, NEXTAUTH_URL)
+4. Deploy
+5. Run database migrations
+6. Configure Google OAuth (optional)
+
+## 📖 Usage Guide
+
+### Creating an Account
+
+1. Click **"Sign In"** button in the header
+2. Switch to **"Sign Up"** tab
+3. Enter your name, email, and password (min 6 characters)
+4. Click **"Sign Up"** to create account
+5. You'll be automatically signed in
+
+### Using Google OAuth
+
+1. Click **"Continue with Google"**
+2. Select your Google account
+3. Grant permissions
+4. Instant sign-in with cloud sync enabled
+
+### Managing Tasks
+
+- **Add Task**: Enter title, optionally set priority and due date, click "Add"
+- **Complete Task**: Click the checkbox next to the task
+- **Edit Priority**: Click the priority badge to cycle through Low → Medium → High
+- **Set/Edit Due Date**: Click the calendar icon or existing date
+- **Delete Task**: Click the trash icon
+
+### Cloud Synchronization
+
+- **Automatic Sync**: Tasks sync every 5 seconds when signed in
+- **Multi-Device**: Changes appear on all your devices automatically
+- **Offline Support**: Local changes sync when connection restored
+- **Conflict Resolution**: Last-write-wins strategy
+
+### Smart Task Recommendations
+
+1. Enable **"Advanced Task Recommendations"** in settings (⚙️ icon)
+2. Click **"Suggest Task"** to get AI-powered recommendation
+3. Tasks weighted by priority, urgency, and age
+4. Recommended task and timestamp persist across refreshes
+5. Dismiss or mark complete directly from recommendation
+
+### YanAlgorithm Features
+
+Enable **"Stats for Nerds"** to access:
+
+#### Weight Calculations
+- See how each task is weighted
+- View probability percentages
+- Understand selection algorithm
+
+#### Custom Configuration
+- **Categories**: Adjust number of categories (2-10)
+- **Custom Base**: Override calculated base value
+- **Half Weight Mode**: Use 50% of weight for more randomness
+- **Real-time Updates**: See probability changes instantly
+
+#### Algorithm Modes
+1. **Standard**: Uses full calculated weight from tasks
+2. **Half Weight**: Divides weight by 2 for balanced distribution
+3. **Custom Base**: User-defined base (0.1 - 20.0)
+
+### Data Import/Export
+
+#### Export Tasks
+1. Click Export button
+2. Downloads JSON file: `yan-todolist-export-YYYY-MM-DD-HH-mm.json`
+3. Includes all tasks with metadata
+4. Use for backups or data migration
+
+#### Import Tasks
+1. Click Import button
+2. Select JSON export file
+3. Choose: **Add to existing** or **Replace all tasks**
+4. Validates data before importing
+
+**Note**: With cloud sync, import/export is mainly for:
+- Moving between accounts
+- Offline backups
+- Data migration
+- Sharing task lists
+
+## 🧮 YanAlgorithm Deep Dive
+
+### Weight Calculation Formula
+
+For each task:
+```
+weight = (1 / days_until_due) × priority_multiplier
+
+Where:
+- days_until_due = days between now and due date (min: 1)
+- priority_multiplier = { high: 2, medium: 1, low: 0.5 }
+- Tasks with no due date get moderate weight (1/7)
+```
+
+### Random Selection Process
+
+1. Calculate sum of all weights
+2. Generate random value: `0 → sum`
+3. Iterate through tasks cumulatively
+4. Select task when random < cumulative weight
+5. Higher weight = higher selection probability
+
+### Half Weight Mode
+
+When enabled:
+- Calculated base is divided by 2
+- Reduces weight disparity
+- More balanced selection
+- Good for variety in recommendations
+
+## 🔐 Security Features
+
+- **Password Security**: Bcrypt hashing with 10 rounds
+- **Session Management**: Secure JWT tokens via NextAuth
+- **HTTPS Required**: Production enforces secure connections
+- **CSRF Protection**: Built-in via NextAuth
+- **SQL Injection Prevention**: Prisma parameterized queries
+- **XSS Protection**: React automatic escaping
+- **Environment Secrets**: Sensitive data in environment variables
+
+## 🎯 API Endpoints
+
+### Authentication
+- `POST /api/auth/signup` - Create new account
+- `POST /api/auth/signin` - Sign in
+- `POST /api/auth/signout` - Sign out
+- `GET /api/auth/session` - Get current session
+
+### Todos
+- `GET /api/todos` - Get all user's todos
+- `POST /api/todos` - Create new todo
+- `PATCH /api/todos/[id]` - Update todo
+- `DELETE /api/todos/[id]` - Delete todo
+
+All todo endpoints require authentication.
 
 ## 🔧 Configuration
 
 ### Environment Variables
-No environment variables required - fully client-side application.
 
-### Local Storage
-The app automatically saves:
-- All tasks and their metadata
-- User preferences and settings
-- Algorithm configuration
-- No data leaves your device
+| Variable | Description | Required | Example |
+|----------|-------------|----------|---------|
+| `DATABASE_URL` | PostgreSQL connection string | ✅ Yes | `postgresql://...` |
+| `NEXTAUTH_SECRET` | Secret for JWT signing | ✅ Yes | Generate with `openssl rand -base64 32` |
+| `NEXTAUTH_URL` | Application URL | ✅ Yes | `http://localhost:3000` |
+| `GOOGLE_CLIENT_ID` | Google OAuth Client ID | ❌ No | From Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth Secret | ❌ No | From Google Cloud Console |
 
-## 🔒 Privacy & Security
+### Database Schema
 
-- **100% Client-Side**: No data sent to external servers
-- **Local Storage Only**: All data stays on your device
-- **No Tracking**: No analytics or user tracking
-- **Export Control**: You control your data exports
+```prisma
+model User {
+  id       String   @id @default(cuid())
+  email    String   @unique
+  password String?  // Optional for OAuth
+  name     String?
+  todos    Todo[]
+  accounts Account[]
+  sessions Session[]
+}
 
-## 💡 Usage Tips
-
-### Best Practices
-1. **Regular Exports**: Create backups of your tasks periodically
-2. **Priority Management**: Use priority levels to help the algorithm
-3. **Due Date Setting**: Set realistic due dates for better recommendations
-4. **Half Weight Mode**: Try this mode if recommendations feel too predictable
-
-### Keyboard Shortcuts
-- **Enter**: Add new task when in input field
-- **Escape**: Cancel editing operations
+model Todo {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  completed   Boolean  @default(false)
+  priority    String   @default("medium")
+  dueDate     DateTime?
+  userId      String
+  user        User     @relation(...)
+}
+```
 
 ## 🤝 Contributing
 
+Contributions welcome! Please:
+
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+2. Create feature branch: `git checkout -b feature/AmazingFeature`
+3. Commit changes: `git commit -m 'Add AmazingFeature'`
+4. Push to branch: `git push origin feature/AmazingFeature`
+5. Open a Pull Request
 
-## 🐛 Troubleshooting
+## 📝 License
 
-### Common Issues
-- **Import Fails**: Ensure JSON file is valid and from YanToDoList
-- **Export Not Working**: Check browser allows file downloads
-- **Data Lost**: Use exported backup files to restore
+This project is licensed under the MIT License.
 
-### Browser Compatibility
-- Chrome/Edge: Full support
-- Firefox: Full support  
-- Safari: Full support
-- Mobile browsers: Optimized experience
+## 👨‍💻 Author
 
-## 📄 License
-
-Created by **Ethan Yan Xu** - Visit [ethanyanxu.com](https://ethanyanxu.com)
+**Ethan Yan Xu**
+- Portfolio: [ethanyanxu.com](https://ethanyanxu.com)
+- GitHub: [@OoEthanoO](https://github.com/OoEthanoO)
 
 ## 🙏 Acknowledgments
 
-- Next.js team for the excellent framework
-- Tailwind CSS for the utility-first styling approach
-- Lucide for the beautiful icon set
-- The open-source community for inspiration
+- Next.js team for the amazing framework
+- Vercel for hosting and Postgres
+- Prisma for excellent ORM
+- NextAuth.js for authentication
+- All open-source contributors
 
 ---
 

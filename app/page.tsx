@@ -1,220 +1,204 @@
 // filepath: /Users/ethanxu/YanToDoList/app/page.tsx
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Plus, Check, Trash2, Calendar, User, Clock, AlertCircle, Edit3, Save, X, Flag, ArrowUp, ArrowDown, SortAsc, Settings, Sparkles, Download, Upload } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { useSession } from 'next-auth/react'
+import { Plus, Check, Trash2, Calendar, User, Clock, AlertCircle, Edit3, Save, X, Flag, ArrowUp, ArrowDown, SortAsc, Settings, Sparkles, Download, Upload, LogIn, Loader2 } from 'lucide-react'
 import { format, isAfter, isBefore, startOfDay, addDays } from 'date-fns'
+import { useTodos } from '@/hooks/useTodos'
+import { useSettings } from '@/hooks/useSettings'
+import AuthModal from '@/components/AuthModal'
+import UserProfile from '@/components/UserProfile'
+import LocalDataMigration from '@/components/LocalDataMigration'
 
 interface Todo {
   id: string
   title: string
-  description?: string
+  description?: string | null
   completed: boolean
   priority: 'low' | 'high'
-  dueDate?: Date
+  dueDate?: Date | null
   createdAt: Date
   updatedAt: Date
+  userId?: string
 }
 
 export default function Home() {
-  const [todos, setTodos] = useState<Todo[]>([])
+  // Authentication and cloud sync
+  const { data: session } = useSession()
+  const { 
+    todos: cloudTodos, 
+    isLoading: todosLoading, 
+    error: todosError,
+    addTodo: addCloudTodo,
+    updateTodo: updateCloudTodo,
+    deleteTodo: deleteCloudTodo,
+    isAuthenticated 
+  } = useTodos()
+  
+  // Cloud settings management
+  const {
+    settings,
+    isLoading: settingsLoading,
+    updateSettings,
+    generateRecommendation,
+    generateRandomNumber,
+      saveAlgorithmResults,
+    dismissRecommendation,
+  } = useSettings()
+  
+  // Auth UI state
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  
+  // Use cloud todos when authenticated, otherwise use empty array
+  const todos = isAuthenticated ? cloudTodos : []
+  
+  // Local UI state (not synced)
   const [newTodo, setNewTodo] = useState('')
   const [newDueDate, setNewDueDate] = useState('')
   const [newPriority, setNewPriority] = useState<'low' | 'high'>('low')
-  const [filter, setFilter] = useState<'all' | 'active' | 'completed' | 'overdue'>('all')
-  const [sortBy, setSortBy] = useState<'created' | 'dueDate'>('created')
-  const [priorityFirst, setPriorityFirst] = useState(true)
   const [editingDate, setEditingDate] = useState<string | null>(null)
   const [editDateValue, setEditDateValue] = useState('')
   const [editingPriority, setEditingPriority] = useState<string | null>(null)
-  const [advancedRecommendations, setAdvancedRecommendations] = useState(false)
+  const [editingTitle, setEditingTitle] = useState<string | null>(null)
+  const [editTitleValue, setEditTitleValue] = useState('')
   const [showSettings, setShowSettings] = useState(false)
   const [recommendedTask, setRecommendedTask] = useState<Todo | null>(null)
   const [isGeneratingRecommendation, setIsGeneratingRecommendation] = useState(false)
-  const [taskWeights, setTaskWeights] = useState<{ [key: string]: number }>({})
-  const [totalWeight, setTotalWeight] = useState(0)
-  const [statsForNerds, setStatsForNerds] = useState(false)
-  const [randomNumber, setRandomNumber] = useState<number | null>(null)
-  const [selectedCategory, setSelectedCategory] = useState<number | null>(null)
-  const [generatedSum, setGeneratedSum] = useState<number | null>(null)
-  const [generatedRandomValue, setGeneratedRandomValue] = useState<number | null>(null)
-  const [generatedAt, setGeneratedAt] = useState<string | null>(null)
-  const [numCategories, setNumCategories] = useState(3)
-  const [useCustomBase, setUseCustomBase] = useState(false)
-  const [customBase, setCustomBase] = useState(2.93)
-  const [customBaseInput, setCustomBaseInput] = useState('2.93')
-  const [useHalfWeight, setUseHalfWeight] = useState(false)
-  const [lastRecommendationTime, setLastRecommendationTime] = useState<string | null>(null)
-  const [isYanResultsOutdated, setIsYanResultsOutdated] = useState(false)
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
+  
+  // Loading/processing states
+  const [isAdding, setIsAdding] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
+  
+  // Cloud settings with fallbacks
+  const filter = settings?.filter ?? 'all'
+  const sortBy = settings?.sortBy ?? 'created'
+  const priorityFirst = settings?.priorityFirst ?? true
+  const advancedRecommendations = settings?.advancedRecommendations ?? false
+  const statsForNerds = settings?.statsForNerds ?? false
+  const numCategories = settings?.numCategories ?? 3
+  const useCustomBase = settings?.useCustomBase ?? false
+  const customBase = settings?.customBase ?? 2.93
+  const useHalfWeight = settings?.useHalfWeight ?? false
+  // Keep a local draft of the custom base so users can type partial decimals like "2." without it snapping
+  const [customBaseInput, setCustomBaseInput] = useState(customBase.toString())
+  useEffect(() => {
+    // When cloud value changes (other device or save), sync the input
+    setCustomBaseInput(customBase.toString())
+  }, [customBase])
+  
+  // Algorithm results from cloud
+  const randomNumber = settings?.lastRandomNumber ?? null
+  const selectedCategory = settings?.lastSelectedCategory ?? null
+  const generatedSum = settings?.lastGeneratedSum ?? null
+  const generatedRandomValue = settings?.lastGeneratedRandomValue ?? null
+  const generatedAt = settings?.lastGeneratedAt ? format(new Date(settings.lastGeneratedAt), 'MMM d, yyyy \'at\' h:mm a') : null
+  const lastRecommendationTime = settings?.lastRecommendationTime ? format(new Date(settings.lastRecommendationTime), 'MMM d, yyyy \'at\' h:mm a') : null
   
   // Real-time calculated values for display
   const [currentSum, setCurrentSum] = useState<number>(0)
   const [currentProbabilities, setCurrentProbabilities] = useState<number[]>([])
+  
 
-  // Load todos from localStorage on mount
+  // NOTE: Todos are now loaded from cloud via useTodos() hook
+  // Settings are now loaded from cloud via useSettings() hook
+  // No more localStorage usage for user data
+  
+  // Load recommended task from cloud settings
   useEffect(() => {
-    const savedTodos = localStorage.getItem('yan-todos')
-    if (savedTodos) {
-      const parsedTodos = JSON.parse(savedTodos)
-      // Convert date strings back to Date objects and migrate medium priority to low
-      const todosWithDates = parsedTodos.map((todo: any) => ({
-        ...todo,
-        priority: todo.priority === 'medium' ? 'low' : (todo.priority || 'low'), // Migrate medium to low, default to low if no priority
-        dueDate: todo.dueDate ? new Date(todo.dueDate) : undefined,
-        createdAt: new Date(todo.createdAt),
-        updatedAt: new Date(todo.updatedAt)
-      }))
-      setTodos(todosWithDates)
-    }
-  }, [])
-
-  // Load user preferences from localStorage on mount
-  useEffect(() => {
-    const savedPreferences = localStorage.getItem('yan-todo-preferences')
-    if (savedPreferences) {
-      try {
-        const preferences = JSON.parse(savedPreferences)
-        if (preferences.filter) setFilter(preferences.filter)
-        if (preferences.sortBy) setSortBy(preferences.sortBy)
-        if (typeof preferences.priorityFirst === 'boolean') setPriorityFirst(preferences.priorityFirst)
-        if (typeof preferences.advancedRecommendations === 'boolean') setAdvancedRecommendations(preferences.advancedRecommendations)
-        if (typeof preferences.statsForNerds === 'boolean') setStatsForNerds(preferences.statsForNerds)
-        if (typeof preferences.numCategories === 'number' && preferences.numCategories >= 2 && preferences.numCategories <= 10) setNumCategories(preferences.numCategories)
-        if (typeof preferences.useCustomBase === 'boolean') setUseCustomBase(preferences.useCustomBase)
-        if (typeof preferences.customBase === 'number' && preferences.customBase > 0) {
-          setCustomBase(preferences.customBase)
-          setCustomBaseInput(preferences.customBase.toString())
-        }
-        if (typeof preferences.useHalfWeight === 'boolean') setUseHalfWeight(preferences.useHalfWeight)
-      } catch (error) {
-        console.log('Error loading preferences:', error)
+    // Only update local recommendedTask if a valid, active todo matches the saved ID.
+    // Do not auto-clear server state here to avoid accidental disappearance; clearing is explicit via dismiss.
+    if (settings?.lastRecommendedTodoId) {
+      const task = todos.find(t => t.id === settings.lastRecommendedTodoId)
+      if (task && !task.completed) {
+        setRecommendedTask(task)
+        return
       }
     }
-  }, [])
+    setRecommendedTask(null)
+  }, [settings?.lastRecommendedTodoId, settings?.lastRecommendationTime, todos])
 
-  // Load saved recommendation from localStorage on mount
+  // Save todos to localStorage whenever todos change (for offline backup)
   useEffect(() => {
-    const savedRecommendation = localStorage.getItem('yan-last-recommendation')
-    if (savedRecommendation) {
-      try {
-        const recommendation = JSON.parse(savedRecommendation)
-        if (recommendation.taskId && recommendation.generatedAt) {
-          // Find the task by ID in the current todos
-          const task = todos.find(t => t.id === recommendation.taskId)
-          if (task && !task.completed) {
-            setRecommendedTask(task)
-            setLastRecommendationTime(recommendation.generatedAt)
-          }
-        }
-      } catch (error) {
-        console.log('Error loading saved recommendation:', error)
-      }
+    if (todos.length > 0) {
+      localStorage.setItem('yan-todos-backup', JSON.stringify(todos))
     }
   }, [todos])
 
-  // Load saved YanAlgorithm results from localStorage on mount
-  useEffect(() => {
-    const savedYanResults = localStorage.getItem('yan-algorithm-results')
-    if (savedYanResults) {
-      try {
-        const results = JSON.parse(savedYanResults)
-        if (results.randomNumber !== undefined) setRandomNumber(results.randomNumber)
-        if (results.selectedCategory !== undefined) setSelectedCategory(results.selectedCategory)
-        if (results.generatedSum !== undefined) setGeneratedSum(results.generatedSum)
-        if (results.generatedRandomValue !== undefined) setGeneratedRandomValue(results.generatedRandomValue)
-        if (results.generatedAt) setGeneratedAt(results.generatedAt)
-      } catch (error) {
-        console.log('Error loading saved YanAlgorithm results:', error)
-      }
+  const addTodo = async () => {
+    if (!newTodo.trim()) return
+    
+    if (!isAuthenticated) {
+      setShowAuthModal(true)
+      showNotification('Please sign in to add todos', 'info')
+      return
     }
-  }, [])
 
-  // Load saved YanAlgorithm results from localStorage on mount
-  useEffect(() => {
-    const savedYanResults = localStorage.getItem('yan-algorithm-results')
-    if (savedYanResults) {
-      try {
-        const results = JSON.parse(savedYanResults)
-        if (results.randomNumber !== undefined) setRandomNumber(results.randomNumber)
-        if (results.selectedCategory !== undefined) setSelectedCategory(results.selectedCategory)
-        if (results.generatedSum !== undefined) setGeneratedSum(results.generatedSum)
-        if (results.generatedRandomValue !== undefined) setGeneratedRandomValue(results.generatedRandomValue)
-        if (results.generatedAt) setGeneratedAt(results.generatedAt)
-      } catch (error) {
-        console.log('Error loading saved YanAlgorithm results:', error)
-      }
-    }
-  }, [])
-
-  // Save todos to localStorage whenever todos change
-  useEffect(() => {
-    localStorage.setItem('yan-todos', JSON.stringify(todos))
-  }, [todos])
-
-  // Save preferences to localStorage whenever they change
-  useEffect(() => {
-    const preferences = {
-      filter,
-      sortBy,
-      priorityFirst,
-      advancedRecommendations,
-      statsForNerds,
-      numCategories,
-      useCustomBase,
-      customBase,
-      useHalfWeight
-    }
-    localStorage.setItem('yan-todo-preferences', JSON.stringify(preferences))
-  }, [filter, sortBy, priorityFirst, advancedRecommendations, statsForNerds, numCategories, useCustomBase, customBase, useHalfWeight])
-
-  const addTodo = () => {
-    if (newTodo.trim()) {
-      const todo: Todo = {
-        id: Date.now().toString(),
+    try {
+      setIsAdding(true)
+      await addCloudTodo({
         title: newTodo.trim(),
         completed: false,
         priority: newPriority,
-        dueDate: newDueDate ? new Date(newDueDate + 'T00:00:00') : undefined,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }
-      setTodos([todo, ...todos])
+        dueDate: newDueDate ? new Date(newDueDate + 'T00:00:00') : null,
+      })
+      
       setNewTodo('')
       setNewDueDate('')
       setNewPriority('low')
+      showNotification('Task added successfully!', 'success')
+    } catch (error) {
+      console.error('Error adding todo:', error)
+      showNotification('Failed to add task', 'error')
+    } finally {
+      setIsAdding(false)
     }
   }
 
-  const toggleTodo = (id: string) => {
-    setTodos(todos.map(todo =>
-      todo.id === id
-        ? { ...todo, completed: !todo.completed, updatedAt: new Date() }
-        : todo
-    ))
+  const toggleTodo = async (id: string) => {
+    if (!isAuthenticated) return
     
-    // Clear recommendation if the recommended task is being completed
-    if (recommendedTask && recommendedTask.id === id) {
-      const updatedTodo = todos.find(t => t.id === id)
-      if (updatedTodo && !updatedTodo.completed) { // If being marked as completed
+    const todo = todos.find(t => t.id === id)
+    if (!todo) return
+    
+    try {
+      await updateCloudTodo(id, { completed: !todo.completed })
+      
+      // Clear recommendation if the recommended task is being completed
+      if (recommendedTask && recommendedTask.id === id && !todo.completed) {
         dismissRecommendation()
       }
+    } catch (error) {
+      console.error('Error toggling todo:', error)
+      showNotification('Failed to update task', 'error')
     }
   }
 
-  const deleteTodo = (id: string) => {
-    setTodos(todos.filter(todo => todo.id !== id))
+  const deleteTodo = async (id: string) => {
+    if (!isAuthenticated) return
+    
+    try {
+      await deleteCloudTodo(id)
+      showNotification('Task deleted', 'success')
+    } catch (error) {
+      console.error('Error deleting todo:', error)
+      showNotification('Failed to delete task', 'error')
+    }
   }
 
-  const updateTodoDueDate = (id: string, dueDate: Date | undefined) => {
-    setTodos(todos.map(todo =>
-      todo.id === id
-        ? { ...todo, dueDate, updatedAt: new Date() }
-        : todo
-    ))
+  const updateTodoDueDate = async (id: string, dueDate: Date | undefined | null) => {
+    if (!isAuthenticated) return
+    
+    try {
+      await updateCloudTodo(id, { dueDate: dueDate || null })
+    } catch (error) {
+      console.error('Error updating due date:', error)
+      showNotification('Failed to update due date', 'error')
+    }
   }
 
-  const startEditingDate = (todoId: string, currentDate?: Date) => {
+  const startEditingDate = (todoId: string, currentDate?: Date | null) => {
     setEditingDate(todoId)
     setEditDateValue(currentDate ? format(currentDate, 'yyyy-MM-dd') : '')
   }
@@ -223,7 +207,7 @@ export default function Home() {
     if (editDateValue) {
       updateTodoDueDate(todoId, new Date(editDateValue + 'T00:00:00'))
     } else {
-      updateTodoDueDate(todoId, undefined)
+      updateTodoDueDate(todoId, null)
     }
     setEditingDate(null)
     setEditDateValue('')
@@ -234,12 +218,45 @@ export default function Home() {
     setEditDateValue('')
   }
 
-  const updateTodoPriority = (id: string, priority: 'low' | 'high') => {
-    setTodos(todos.map(todo =>
-      todo.id === id
-        ? { ...todo, priority, updatedAt: new Date() }
-        : todo
-    ))
+  const updateTodoTitle = async (id: string, title: string) => {
+    if (!isAuthenticated) return
+    
+    try {
+      await updateCloudTodo(id, { title })
+    } catch (error) {
+      console.error('Error updating title:', error)
+      showNotification('Failed to update title', 'error')
+    }
+  }
+
+  const startEditingTitle = (todoId: string, currentTitle: string) => {
+    setEditingTitle(todoId)
+    setEditTitleValue(currentTitle)
+  }
+
+  const saveEditedTitle = (todoId: string) => {
+    const trimmedTitle = editTitleValue.trim()
+    if (trimmedTitle && trimmedTitle !== todos.find(t => t.id === todoId)?.title) {
+      updateTodoTitle(todoId, trimmedTitle)
+    }
+    setEditingTitle(null)
+    setEditTitleValue('')
+  }
+
+  const cancelEditingTitle = () => {
+    setEditingTitle(null)
+    setEditTitleValue('')
+  }
+
+  const updateTodoPriority = async (id: string, priority: 'low' | 'high') => {
+    if (!isAuthenticated) return
+    
+    try {
+      await updateCloudTodo(id, { priority })
+    } catch (error) {
+      console.error('Error updating priority:', error)
+      showNotification('Failed to update priority', 'error')
+    }
   }
 
   const togglePriority = (id: string, currentPriority: 'low' | 'high') => {
@@ -265,7 +282,12 @@ export default function Home() {
     return 'upcoming'
   }
 
-  const calculateTaskWeights = () => {
+  // Calculate task weights using useMemo to prevent infinite loops
+  const { weights: taskWeights, sum: totalWeight } = useMemo(() => {
+    if (!advancedRecommendations) {
+      return { weights: {}, sum: 0 }
+    }
+
     const activeTodos = todos.filter(todo => !todo.completed)
     const weights: { [key: string]: number } = {}
     let sum = 0
@@ -295,16 +317,30 @@ export default function Home() {
       sum += weight
     }
 
-    setTaskWeights(weights)
-    setTotalWeight(sum)
-  }
-
-  // Calculate weights whenever todos change and advanced recommendations are enabled
-  useEffect(() => {
-    if (advancedRecommendations) {
-      calculateTaskWeights()
-    }
+    return { weights, sum }
   }, [todos, advancedRecommendations])
+
+  // Check if YanAlgorithm results are outdated (moved after totalWeight calculation)
+  const isYanResultsOutdated = useMemo(() => {
+    if (!settings?.lastSettingsSnapshot || !settings?.lastGeneratedAt) return false
+    
+    const savedSettings = settings.lastSettingsSnapshot as any
+    
+    // Match the API logic exactly
+    let calculatedBase = totalWeight || 2.93
+    if (useHalfWeight) {
+      calculatedBase = calculatedBase / 2
+    }
+    const currentEffectiveBase = useCustomBase ? customBase : calculatedBase
+    
+    return !(
+      savedSettings.numCategories === numCategories &&
+      savedSettings.useCustomBase === useCustomBase &&
+      savedSettings.useHalfWeight === useHalfWeight &&
+      savedSettings.customBase === customBase &&
+      Math.abs(savedSettings.effectiveBase - currentEffectiveBase) < 0.001
+    )
+  }, [settings, numCategories, useCustomBase, customBase, useHalfWeight, totalWeight])
 
   // Recalculate probabilities whenever any parameter that affects them changes
   useEffect(() => {
@@ -316,69 +352,64 @@ export default function Home() {
     calculateCurrentProbabilities()
   }, [])
 
+  // Setting update functions that sync to cloud
+  const setFilter = (newFilter: typeof filter) => updateSettings({ filter: newFilter })
+  const setSortBy = (newSortBy: typeof sortBy) => updateSettings({ sortBy: newSortBy })
+  const setPriorityFirst = (newPriorityFirst: boolean) => updateSettings({ priorityFirst: newPriorityFirst })
+  const setAdvancedRecommendations = (newAdvancedRecommendations: boolean) => updateSettings({ advancedRecommendations: newAdvancedRecommendations })
+  const setStatsForNerds = (newStatsForNerds: boolean) => updateSettings({ statsForNerds: newStatsForNerds })
+  const setNumCategories = (newNumCategories: number) => updateSettings({ numCategories: newNumCategories })
+  const setUseCustomBase = (newUseCustomBase: boolean) => updateSettings({ useCustomBase: newUseCustomBase })
+  const setCustomBase = (newCustomBase: number) => updateSettings({ customBase: newCustomBase })
+  const setUseHalfWeight = (newUseHalfWeight: boolean) => updateSettings({ useHalfWeight: newUseHalfWeight })
+
   // Helper function to check if YanAlgorithm settings have changed
+  // This is now computed in the useMemo above
   const checkYanResultsValidity = () => {
-    const savedYanResults = localStorage.getItem('yan-algorithm-results')
-    if (!savedYanResults) {
-      setIsYanResultsOutdated(false)
-      return
-    }
-    
-    try {
-      const results = JSON.parse(savedYanResults)
-      if (!results.settingsUsed) {
-        setIsYanResultsOutdated(false)
-        return
-      }
-      
-      const savedSettings = results.settingsUsed
-      const currentCalculatedBase = totalWeight || 2.93
-      const currentEffectiveBase = useCustomBase ? customBase : (useHalfWeight ? currentCalculatedBase / 2 : currentCalculatedBase)
-      
-      // Compare all relevant settings
-      const settingsMatch = (
-        savedSettings.numCategories === numCategories &&
-        savedSettings.useCustomBase === useCustomBase &&
-        savedSettings.useHalfWeight === useHalfWeight &&
-        Math.abs(savedSettings.effectiveBase - currentEffectiveBase) < 0.001 // Allow small floating point differences
-      )
-      
-      setIsYanResultsOutdated(!settingsMatch)
-    } catch (error) {
-      setIsYanResultsOutdated(false)
-    }
+    // Results validity is now computed in real-time via useMemo
+    // No need to set state here
   }
 
   // Check validity whenever relevant settings change
   useEffect(() => {
     checkYanResultsValidity()
   }, [numCategories, useCustomBase, customBase, useHalfWeight, totalWeight])
+  
   const handleCustomBaseInputChange = (value: string) => {
-    setCustomBaseInput(value)
-    
-    // Only update the actual customBase if the value is valid
-    const numValue = parseFloat(value)
-    if (!isNaN(numValue) && numValue > 0 && numValue <= 20) {
-      setCustomBase(numValue)
+    // Allow only digits and a single decimal point; support partial values like "", ".", and "2."
+    const sanitized = value.replace(/[^\d.]/g, '')
+    const parts = sanitized.split('.')
+    const normalized = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : sanitized
+
+    const isPartialNumeric = normalized === '' || normalized === '.' || /^(\d+)(\.)?$/.test(normalized) || /^(\d*)\.(\d*)$/.test(normalized)
+    if (!isPartialNumeric) return
+
+    setCustomBaseInput(normalized)
+
+    // Commit only when the value represents a complete number (not empty, not just '.', and not ending with '.')
+    if (normalized !== '' && normalized !== '.' && !normalized.endsWith('.')) {
+      const numValue = parseFloat(normalized)
+      if (!isNaN(numValue) && numValue >= 0.1 && numValue <= 20) {
+        setCustomBase(numValue)
+      }
     }
   }
 
   const handleCustomBaseInputBlur = () => {
-    const numValue = parseFloat(customBaseInput)
-    
-    // If invalid input, reset to current customBase value
-    if (isNaN(numValue) || numValue <= 0 || numValue > 20) {
-      setCustomBaseInput(customBase.toString())
-    } else {
-      // Ensure the actual value is updated and formatted
-      setCustomBase(numValue)
-      setCustomBaseInput(numValue.toString())
+    // On blur, commit if valid, otherwise reset to the current saved value
+    if (customBaseInput !== '' && customBaseInput !== '.' && !customBaseInput.endsWith('.')) {
+      const numValue = parseFloat(customBaseInput)
+      if (!isNaN(numValue) && numValue >= 0.1 && numValue <= 20) {
+        if (numValue !== customBase) setCustomBase(numValue)
+        setCustomBaseInput(numValue.toString())
+        return
+      }
     }
+    setCustomBaseInput(customBase.toString())
   }
 
   const resetCustomBase = () => {
     setCustomBase(2.93)
-    setCustomBaseInput('2.93')
   }
 
   const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -451,13 +482,20 @@ export default function Home() {
     }
   }
 
-  const importTasks = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const importTasks = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
 
+    if (!isAuthenticated) {
+      setShowAuthModal(true)
+      showNotification('Please sign in to import tasks', 'info')
+      return
+    }
+
     const reader = new FileReader()
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
+        setIsImporting(true)
         const content = e.target?.result as string
         const data = JSON.parse(content)
         
@@ -467,24 +505,29 @@ export default function Home() {
           return
         }
         
-        // Convert date strings back to Date objects and validate structure
-        const importedTasks = data.tasks.map((task: any, index: number) => {
+        // Convert date strings back to Todo objects for cloud sync
+        type ImportedTask = {
+          title: string
+          description?: string
+          completed: boolean
+          priority: 'low' | 'high'
+          dueDate: Date | null
+        }
+        
+        const importedTasks: ImportedTask[] = data.tasks.map((task: any, index: number) => {
           try {
             return {
-              id: task.id || `imported-${Date.now()}-${index}`,
               title: task.title || 'Untitled Task',
               description: task.description,
               completed: Boolean(task.completed),
-              priority: task.priority === 'medium' ? 'low' : (['low', 'high'].includes(task.priority) ? task.priority : 'low'),
-              dueDate: task.dueDate ? new Date(task.dueDate) : undefined,
-              createdAt: task.createdAt ? new Date(task.createdAt) : new Date(),
-              updatedAt: task.updatedAt ? new Date(task.updatedAt) : new Date()
+              priority: (['low', 'high'].includes(task.priority) ? task.priority : 'low') as 'low' | 'high',
+              dueDate: task.dueDate ? new Date(task.dueDate) : null,
             }
           } catch (taskError) {
             console.warn(`Error parsing task ${index}:`, taskError)
             return null
           }
-        }).filter(Boolean) // Remove any failed tasks
+        }).filter((task: ImportedTask | null): task is ImportedTask => task !== null) // Remove any failed tasks
         
         if (importedTasks.length === 0) {
           showNotification('No valid tasks found in the import file.', 'error')
@@ -504,23 +547,36 @@ export default function Home() {
           )
         }
         
-        if (shouldReplace || !hasExistingTasks) {
-          // Replace all tasks
-          setTodos(importedTasks)
-          showNotification(`Replaced all tasks with ${importedTasks.length} imported tasks!`, 'success')
-        } else {
-          // Add to existing tasks
-          setTodos([...importedTasks, ...todos])
-          showNotification(`Added ${importedTasks.length} tasks to your existing ${todos.length} tasks!`, 'success')
+        try {
+          // If replacing, delete all existing todos first
+          if (shouldReplace && hasExistingTasks) {
+            await Promise.all(todos.map(todo => deleteCloudTodo(todo.id)))
+          }
+          
+          // Add all imported tasks
+          await Promise.all(importedTasks.map((task) => addCloudTodo(task as Parameters<typeof addCloudTodo>[0])))
+          
+          const message = shouldReplace || !hasExistingTasks
+            ? `Replaced all tasks with ${importedTasks.length} imported tasks!`
+            : `Added ${importedTasks.length} tasks to your existing tasks!`
+          
+          showNotification(message, 'success')
+        } catch (error) {
+          console.error('Error importing tasks to cloud:', error)
+          showNotification('Error importing some tasks. Please try again.', 'error')
+        } finally {
+          setIsImporting(false)
         }
       } catch (error) {
         console.error('Import error:', error)
         showNotification('Error importing file. Please make sure it\'s a valid JSON file.', 'error')
+        setIsImporting(false)
       }
     }
     
     reader.onerror = () => {
       showNotification('Error reading file. Please try again.', 'error')
+      setIsImporting(false)
     }
     
     reader.readAsText(file)
@@ -528,7 +584,7 @@ export default function Home() {
     event.target.value = ''
   }
 
-  const generateRandomRecommendation = () => {
+  const generateRandomRecommendation = async () => {
     const activeTodos = todos.filter(todo => !todo.completed)
     
     if (activeTodos.length === 0) {
@@ -538,128 +594,91 @@ export default function Home() {
 
     setIsGeneratingRecommendation(true)
     
-    // Add a small delay for better UX (simulating "thinking")
-    setTimeout(() => {
-      // Use pre-calculated weights
-      if (totalWeight <= 0) {
-        // Fallback to random selection if weights don't work
-        const randomIndex = Math.floor(Math.random() * activeTodos.length)
-        setRecommendedTask(activeTodos[randomIndex])
-        setIsGeneratingRecommendation(false)
-        return
+    try {
+      const result = await generateRecommendation()
+      if (result?.recommendation) {
+        setRecommendedTask(result.recommendation)
+        showNotification('New task recommendation generated!', 'success')
       }
-
-      // Apply half weight option if enabled
-      const effectiveWeight = useHalfWeight ? totalWeight / 2 : totalWeight
-      
-      // Generate random value and select task based on weighted probability
-      const randomValue = Math.random() * effectiveWeight
-      console.log(`Random Value: ${randomValue}, Total Weight: ${totalWeight}, Effective Weight: ${effectiveWeight}`)
-
-      let cumulative = 0
-      let selectedTask: Todo | null = null
-
-      for (const todo of activeTodos) {
-        const taskWeight = useHalfWeight ? (taskWeights[todo.id] || 0) / 2 : (taskWeights[todo.id] || 0)
-        cumulative += taskWeight
-        if (randomValue < cumulative) {
-          selectedTask = todo
-          break
-        }
-      }
-
-      const finalTask = selectedTask || activeTodos[0] // Fallback to first task
-      const generationTime = new Date().toLocaleString()
-      
-      setRecommendedTask(finalTask)
-      setLastRecommendationTime(generationTime)
+    } catch (error) {
+      console.error('Error generating recommendation:', error)
+      showNotification('Failed to generate recommendation', 'error')
+    } finally {
       setIsGeneratingRecommendation(false)
-      
-      // Save recommendation to localStorage
-      const recommendationData = {
-        taskId: finalTask.id,
-        generatedAt: generationTime
-      }
-      localStorage.setItem('yan-last-recommendation', JSON.stringify(recommendationData))
-    }, 800)
+    }
   }
 
-  const dismissRecommendation = () => {
+  const dismissRecommendationLocal = async () => {
     setRecommendedTask(null)
-    setLastRecommendationTime(null)
-    localStorage.removeItem('yan-last-recommendation')
+    await dismissRecommendation()
   }
 
-  const generateRandomNumber = () => {
-    // Use the current calculated sum instead of recalculating
-    const sum = currentSum
-    
-    // Calculate the current base for logging
-    let calculatedBase = totalWeight || 2.93
-    if (useHalfWeight) {
-      calculatedBase = calculatedBase / 2
-    }
-    const base = useCustomBase ? customBase : calculatedBase
-    
-    // Generate random number between 0 and sum
-    const randomValue = Math.random() * sum
-    
-    // Find selected category using cumulative weights
-    let cumulative = 0
-    let selectedCat: number | null = null
-    
-    for (let i = 0; i < numCategories; i++) {
-      cumulative += Math.pow(base, i + 1)
-      if (randomValue < cumulative) {
-        selectedCat = i + 1
-        break
+  const generateRandomNumberLocal = async () => {
+      // Generate numbers instantly on client side
+      try {
+        // Calculate the current base (same logic as calculateCurrentProbabilities)
+        let calculatedBase = totalWeight || 2.93
+        if (useHalfWeight) {
+          calculatedBase = calculatedBase / 2
+        }
+        const base = useCustomBase ? customBase : calculatedBase
+      
+        // Create categories dynamically based on numCategories
+        const categories = Array.from({ length: numCategories }, (_, i) => i + 1)
+      
+        // Calculate sum using base^(i+1) for each category
+        let sum = 0
+        for (let i = 0; i < categories.length; i++) {
+          sum += Math.pow(base, i + 1)
+        }
+      
+        // Generate random number between 0 and sum
+        const randomValue = Math.random() * sum
+      
+        // Find selected category using cumulative weights
+        let cumulative = 0
+        let selectedCategory: number | null = null
+      
+        for (let i = 0; i < numCategories; i++) {
+          cumulative += Math.pow(base, i + 1)
+          if (randomValue < cumulative) {
+            selectedCategory = i + 1
+            break
+          }
+        }
+      
+        const generatedAt = new Date()
+      
+        // Round values for storage
+        const finalRandomNumber = Math.floor(randomValue * 1000) / 1000
+        const finalSum = Math.floor(sum * 1000) / 1000
+        const finalRandomValue = Math.floor(randomValue * 1000) / 1000
+      
+        // Create settings snapshot
+        const settingsSnapshot = {
+          numCategories,
+          useCustomBase,
+          customBase, // Save the actual custom base value
+          useHalfWeight,
+          effectiveBase: base, // This is what we actually used for calculations
+          totalWeight
+        }
+      
+        // Save to server in background (optimistic update will make it appear instant)
+        saveAlgorithmResults({
+          randomNumber: finalRandomNumber,
+          selectedCategory: selectedCategory!,
+          generatedSum: finalSum,
+          generatedRandomValue: finalRandomValue,
+          generatedAt,
+          settingsSnapshot
+        })
+      
+        showNotification('Random number generated!', 'success')
+      } catch (error) {
+        console.error('Error generating random number:', error)
+        showNotification('Failed to generate random number', 'error')
       }
-    }
-    
-    // Update only the generation-specific state
-    const finalRandomNumber = Math.floor(randomValue * 1000) / 1000 // 3 decimal places
-    const finalSum = Math.floor(sum * 1000) / 1000 // 3 decimal places
-    const finalRandomValue = Math.floor(randomValue * 1000) / 1000 // 3 decimal places
-    const finalGeneratedAt = new Date().toLocaleString()
-    
-    setRandomNumber(finalRandomNumber)
-    setSelectedCategory(selectedCat)
-    setGeneratedSum(finalSum)
-    setGeneratedRandomValue(finalRandomValue)
-    setGeneratedAt(finalGeneratedAt)
-    
-    // Save YanAlgorithm results to localStorage
-    const yanResults = {
-      randomNumber: finalRandomNumber,
-      selectedCategory: selectedCat,
-      generatedSum: finalSum,
-      generatedRandomValue: finalRandomValue,
-      generatedAt: finalGeneratedAt,
-      // Also save the settings used for this generation
-      settingsUsed: {
-        numCategories,
-        useCustomBase,
-        customBase: useCustomBase ? customBase : calculatedBase,
-        useHalfWeight,
-        effectiveBase: base
-      }
-    }
-    localStorage.setItem('yan-algorithm-results', JSON.stringify(yanResults))
-    
-    // Reset outdated flag since we just generated fresh results
-    setIsYanResultsOutdated(false)
-    
-    console.log(`Base: ${base} (${useCustomBase ? 'custom' : 'calculated'}${useHalfWeight && !useCustomBase ? ' with half weight' : ''})`)
-    console.log(`Sum: ${sum}`)
-    console.log(`Random number: ${randomValue}`)
-    console.log(`Selected category: ${selectedCat}`)
-    
-    // Log probabilities for all categories using current probabilities
-    currentProbabilities.forEach((probability, index) => {
-      console.log(`Chance of ${index + 1}: ${probability.toFixed(2)}%`)
-    })
-    
-    console.log(`Generated at: ${new Date().toLocaleString()}`)
   }
 
   const filteredTodos = todos.filter(todo => {
@@ -668,9 +687,9 @@ export default function Home() {
     if (filter === 'overdue') return isOverdue(todo)
     return true
   }).sort((a, b) => {
-    // Priority sorting: high -> medium -> low (only if priorityFirst is enabled)
+    // Priority sorting: high -> low (only if priorityFirst is enabled)
     if (priorityFirst && a.priority !== b.priority) {
-      const priorityOrder = { 'high': 3, 'medium': 2, 'low': 1 }
+      const priorityOrder = { 'high': 2, 'low': 1 }
       return priorityOrder[b.priority] - priorityOrder[a.priority]
     }
     
@@ -737,6 +756,11 @@ export default function Home() {
       <header className="mb-8">
         <div className="relative text-center">
           <h1 className="text-4xl font-bold mb-2" style={{color: 'var(--foreground)'}}>YanToDoList</h1>
+          
+          {/* User Profile - positioned in top left */}
+          <div className="absolute top-0 left-0">
+            <UserProfile onSignInClick={() => setShowAuthModal(true)} />
+          </div>
           
           {/* Settings Toggle - positioned in top right */}
           <div className="absolute top-0 right-0">
@@ -821,15 +845,18 @@ export default function Home() {
                   </button>
                   
                   {/* Import Button */}
-                  <label className="flex-1 px-4 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center gap-2 font-medium cursor-pointer">
-                    <Upload size={16} />
-                    Import Tasks
+                  <label className={`flex-1 px-4 py-3 text-white rounded-lg transition-colors flex items-center justify-center gap-2 font-medium cursor-pointer ${
+                    isImporting ? 'bg-green-400 cursor-wait' : 'bg-green-500 hover:bg-green-600'
+                  }`}>
+                    {isImporting ? <Loader2 className="animate-spin" size={16} /> : <Upload size={16} />}
+                    {isImporting ? 'Importing...' : 'Import Tasks'}
                     <input
                       type="file"
                       accept=".json"
                       onChange={importTasks}
                       className="hidden"
                       title="Import tasks from a JSON file"
+                      disabled={isImporting}
                     />
                   </label>
                 </div>
@@ -1134,7 +1161,7 @@ export default function Home() {
                   {/* Generate Button */}
                   <div className="space-y-2">
                     <button
-                      onClick={generateRandomNumber}
+                      onClick={generateRandomNumberLocal}
                       className="w-full px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-sm font-medium"
                     >
                       Generate Weighted Random
@@ -1159,7 +1186,7 @@ export default function Home() {
                           <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
                           <span className="text-xs font-medium">Results may be outdated - settings have changed</span>
                           <button
-                            onClick={generateRandomNumber}
+                            onClick={generateRandomNumberLocal}
                             className="ml-2 px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
                           >
                             Update
@@ -1229,6 +1256,57 @@ export default function Home() {
         </div>
       )}
 
+      {/* Loading State */}
+      {todosLoading && (
+        <div className="text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          <p className="mt-4 text-lg" style={{color: 'var(--muted-foreground)'}}>Loading your tasks...</p>
+        </div>
+      )}
+
+      {/* Unauthenticated State */}
+      {!isAuthenticated && !todosLoading && (
+        <div className="text-center py-12 px-4">
+          <div className="max-w-md mx-auto">
+            <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-blue-100 flex items-center justify-center">
+              <svg 
+                className="w-10 h-10 text-blue-500" 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round" 
+                  strokeWidth={2} 
+                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" 
+                />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold mb-3" style={{color: 'var(--foreground)'}}>
+              Welcome to YanToDoList
+            </h2>
+            <p className="mb-6" style={{color: 'var(--muted-foreground)'}}>
+              Sign in to access your tasks from anywhere, sync across devices, and never lose your progress.
+            </p>
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium text-lg"
+            >
+              Sign In to Get Started
+            </button>
+            <div className="mt-8 pt-6 border-t" style={{borderColor: 'var(--border)'}}>
+              <p className="text-sm" style={{color: 'var(--muted-foreground)'}}>
+                ✨ AI-powered task recommendations • 📅 Smart due date tracking • 🎯 Priority management
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content - Only shown when authenticated */}
+      {isAuthenticated && !todosLoading && (
+        <>
       {/* Add Todo Form */}
       <div className="rounded-lg shadow-md p-6 mb-6" style={{backgroundColor: 'var(--card)', color: 'var(--card-foreground)'}}>
         <div className="space-y-4">
@@ -1248,10 +1326,13 @@ export default function Home() {
             />
             <button
               onClick={addTodo}
-              className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center gap-2"
+              disabled={isAdding}
+              className={`px-6 py-2 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center gap-2 ${
+                isAdding ? 'bg-blue-400 cursor-not-allowed' : 'bg-blue-500 hover:bg-blue-600'
+              }`}
             >
-              <Plus size={20} />
-              Add
+              {isAdding ? <Loader2 className="animate-spin" size={18} /> : <Plus size={20} />}
+              {isAdding ? 'Adding...' : 'Add'}
             </button>
           </div>
           <div className="flex gap-4 items-center">
@@ -1387,7 +1468,7 @@ export default function Home() {
                       Mark Done
                     </button>
                     <button
-                      onClick={dismissRecommendation}
+                      onClick={dismissRecommendationLocal}
                       className="p-1 rounded-md transition-colors"
                       style={{color: 'var(--muted-foreground)'}}
                       title="Dismiss recommendation"
@@ -1505,7 +1586,7 @@ export default function Home() {
             return (
               <div
                 key={todo.id}
-                className={`rounded-lg shadow-md p-4 transition-all hover:shadow-lg ${
+                className={`group rounded-lg shadow-md p-4 transition-all hover:shadow-lg relative ${
                   todo.completed ? 'opacity-75' : ''
                 } ${dueDateStatus === 'overdue' ? 'border-l-4 border-red-500' : todo.priority === 'high' ? 'border-l-4 border-orange-500' : ''}`}
                 style={{backgroundColor: 'var(--card)', color: 'var(--card-foreground)'}}
@@ -1525,19 +1606,62 @@ export default function Home() {
                   
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <h3
-                        className={`font-medium ${
-                          todo.completed
-                            ? 'line-through'
-                            : ''
-                        }`}
-                        style={{color: todo.completed ? 'var(--muted-foreground)' : 'var(--card-foreground)'}}
-                      >
-                        {todo.title}
-                      </h3>
+                      {editingTitle === todo.id ? (
+                        <div className="flex items-center gap-2 flex-1">
+                          <input
+                            type="text"
+                            value={editTitleValue}
+                            onChange={(e) => setEditTitleValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                saveEditedTitle(todo.id)
+                              } else if (e.key === 'Escape') {
+                                cancelEditingTitle()
+                              }
+                            }}
+                            className="flex-1 px-3 py-1 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium"
+                            style={{
+                              backgroundColor: 'var(--input)',
+                              color: 'var(--foreground)',
+                              border: '1px solid var(--border)'
+                            }}
+                            autoFocus
+                            placeholder="Enter task name..."
+                          />
+                          <button
+                            onClick={() => saveEditedTitle(todo.id)}
+                            className="p-1 text-green-600 rounded transition-colors flex-shrink-0 hover:bg-green-50"
+                            title="Save title (Enter)"
+                          >
+                            <Save size={16} />
+                          </button>
+                          <button
+                            onClick={cancelEditingTitle}
+                            className="p-1 rounded transition-colors flex-shrink-0"
+                            style={{color: 'var(--muted-foreground)'}}
+                            title="Cancel (Esc)"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      ) : (
+                        <h3
+                          className={`font-medium cursor-pointer hover:opacity-70 transition-opacity ${
+                            todo.completed
+                              ? 'line-through'
+                              : ''
+                          }`}
+                          style={{color: todo.completed ? 'var(--muted-foreground)' : 'var(--card-foreground)'}}
+                          onClick={() => !todo.completed && startEditingTitle(todo.id, todo.title)}
+                          title={!todo.completed ? "Click to edit task name" : ""}
+                        >
+                          {todo.title}
+                        </h3>
+                      )}
                       <button
                         onClick={() => togglePriority(todo.id, todo.priority)}
-                        className={`px-2 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 hover:opacity-80 ${
+                        
+                        className={`px-2 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${
                           todo.priority === 'high'
                             ? 'bg-red-100 text-red-700 border border-red-200'
                             : 'bg-green-100 text-green-700 border border-green-200'
@@ -1613,13 +1737,15 @@ export default function Home() {
                               />
                               <button
                                 onClick={() => saveEditedDate(todo.id)}
-                                className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
+                                
+                                className={`p-1 text-green-600 rounded transition-colors hover:bg-green-50`}
                                 title="Save date"
                               >
                                 <Save size={12} />
                               </button>
                               <button
                                 onClick={cancelEditingDate}
+                                
                                 className="p-1 rounded transition-colors"
                                 style={{color: 'var(--muted-foreground)'}}
                                 title="Cancel"
@@ -1683,13 +1809,15 @@ export default function Home() {
                         />
                         <button
                           onClick={() => saveEditedDate(todo.id)}
-                          className="p-1 text-green-600 hover:bg-green-50 rounded transition-colors"
+                          
+                          className={`p-1 text-green-600 rounded transition-colors hover:bg-green-50`}
                           title="Save date"
                         >
                           <Save size={14} />
                         </button>
                         <button
                           onClick={cancelEditingDate}
+                          
                           className="p-1 rounded transition-colors"
                           style={{color: 'var(--muted-foreground)'}}
                           title="Cancel"
@@ -1702,7 +1830,8 @@ export default function Home() {
                     {todo.dueDate && editingDate !== todo.id && (
                       <button
                         onClick={() => updateTodoDueDate(todo.id, undefined)}
-                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        
+                        className={`p-2 text-red-500 rounded-lg transition-colors hover:bg-red-50`}
                         title="Remove due date"
                       >
                         <X size={16} />
@@ -1711,7 +1840,8 @@ export default function Home() {
                     
                     <button
                       onClick={() => deleteTodo(todo.id)}
-                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      
+                      className={`p-2 text-red-500 rounded-lg transition-colors hover:bg-red-50`}
                     >
                       <Trash2 size={18} />
                     </button>
@@ -1756,6 +1886,8 @@ export default function Home() {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* Footer */}
       <footer className="mt-16 py-8">
@@ -1809,6 +1941,14 @@ export default function Home() {
           </div>
         </div>
       </footer>
+
+      {/* Auth Modal */}
+      {showAuthModal && (
+        <AuthModal onClose={() => setShowAuthModal(false)} />
+      )}
+
+      {/* Local Data Migration */}
+      <LocalDataMigration />
     </main>
   )
 }
