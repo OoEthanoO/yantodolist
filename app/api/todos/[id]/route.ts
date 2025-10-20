@@ -45,6 +45,9 @@ export async function PATCH(
       data: {
         ...updates,
         dueDate: updates.dueDate ? new Date(updates.dueDate) : existingTodo.dueDate,
+        scheduledDate: updates.scheduledDate !== undefined 
+          ? (updates.scheduledDate ? new Date(updates.scheduledDate) : null)
+          : existingTodo.scheduledDate,
         updatedAt: new Date(),
       }
     })

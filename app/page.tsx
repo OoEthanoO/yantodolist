@@ -1,15 +1,20 @@
 // filepath: /Users/ethanxu/YanToDoList/app/page.tsx
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import { useSession } from 'next-auth/react'
-import { Plus, Check, Trash2, Calendar, User, Clock, AlertCircle, Edit3, Save, X, Flag, ArrowUp, ArrowDown, SortAsc, Settings, Sparkles, Download, Upload, LogIn, Loader2 } from 'lucide-react'
+import { Plus, Check, Trash2, Calendar, CalendarX, User, Clock, AlertCircle, Edit3, Save, X, Flag, ArrowUp, ArrowDown, SortAsc, Settings, Sparkles, Download, Upload, LogIn, Loader2, BarChart3, CalendarDays, List, GitBranch, Copy } from 'lucide-react'
+import { APP_VERSION } from '@/lib/version'
+
+const CLIENT_VERSION = APP_VERSION
 import { format, isAfter, isBefore, startOfDay, addDays } from 'date-fns'
 import { useTodos } from '@/hooks/useTodos'
 import { useSettings } from '@/hooks/useSettings'
 import AuthModal from '@/components/AuthModal'
 import UserProfile from '@/components/UserProfile'
 import LocalDataMigration from '@/components/LocalDataMigration'
+import CalendarView from '@/components/CalendarView'
+import AnalyticsView from '@/components/AnalyticsView'
 
 interface Todo {
   id: string
@@ -18,6 +23,7 @@ interface Todo {
   completed: boolean
   priority: 'low' | 'high'
   dueDate?: Date | null
+  scheduledDate?: Date | null
   createdAt: Date
   updatedAt: Date
   userId?: string
@@ -25,8 +31,8 @@ interface Todo {
 
 export default function Home() {
   // Authentication and cloud sync
-  const { data: session } = useSession()
-  const { 
+  const { status: sessionStatus } = useSession()
+  const {
     todos: cloudTodos, 
     isLoading: todosLoading, 
     error: todosError,
@@ -52,13 +58,17 @@ export default function Home() {
   
   // Use cloud todos when authenticated, otherwise use empty array
   const todos = isAuthenticated ? cloudTodos : []
+  const isUnauthenticated = sessionStatus === 'unauthenticated'
   
   // Local UI state (not synced)
   const [newTodo, setNewTodo] = useState('')
   const [newDueDate, setNewDueDate] = useState('')
+  const [newScheduledDate, setNewScheduledDate] = useState('')
   const [newPriority, setNewPriority] = useState<'low' | 'high'>('low')
   const [editingDate, setEditingDate] = useState<string | null>(null)
   const [editDateValue, setEditDateValue] = useState('')
+  const [editingScheduled, setEditingScheduled] = useState<string | null>(null)
+  const [editScheduledValue, setEditScheduledValue] = useState('')
   const [editingPriority, setEditingPriority] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState<string | null>(null)
   const [editTitleValue, setEditTitleValue] = useState('')
@@ -66,6 +76,10 @@ export default function Home() {
   const [recommendedTask, setRecommendedTask] = useState<Todo | null>(null)
   const [isGeneratingRecommendation, setIsGeneratingRecommendation] = useState(false)
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
+  const [currentView, setCurrentView] = useState<'list' | 'calendar' | 'analytics'>('list')
+  const [serverVersion, setServerVersion] = useState<string | null>(null)
+  const [showRefreshPrompt, setShowRefreshPrompt] = useState(false)
+  const dismissedVersionRef = useRef<string | null>(null)
   
   // Loading/processing states
   const [isAdding, setIsAdding] = useState(false)
@@ -119,6 +133,41 @@ export default function Home() {
     setRecommendedTask(null)
   }, [settings?.lastRecommendedTodoId, settings?.lastRecommendationTime, todos])
 
+  useEffect(() => {
+    let isMounted = true
+
+    const checkVersion = async () => {
+      try {
+        const response = await fetch('/api/version', { cache: 'no-store' })
+        if (!response.ok) return
+
+        const data = await response.json()
+        if (!isMounted) return
+
+        const latestVersion: string | null = data?.version ?? null
+        setServerVersion(latestVersion)
+
+        if (latestVersion && latestVersion !== CLIENT_VERSION) {
+          if (dismissedVersionRef.current !== latestVersion) {
+            setShowRefreshPrompt(true)
+          }
+        } else {
+          setShowRefreshPrompt(false)
+        }
+      } catch (error) {
+        console.error('Error checking application version:', error)
+      }
+    }
+
+    checkVersion()
+    const intervalId = setInterval(checkVersion, 60000)
+
+    return () => {
+      isMounted = false
+      clearInterval(intervalId)
+    }
+  }, [])
+
   // Save todos to localStorage whenever todos change (for offline backup)
   useEffect(() => {
     if (todos.length > 0) {
@@ -142,10 +191,12 @@ export default function Home() {
         completed: false,
         priority: newPriority,
         dueDate: newDueDate ? new Date(newDueDate + 'T00:00:00') : null,
+        scheduledDate: newScheduledDate ? new Date(newScheduledDate + 'T00:00:00') : null,
       })
       
       setNewTodo('')
       setNewDueDate('')
+      setNewScheduledDate('')
       setNewPriority('low')
       showNotification('Task added successfully!', 'success')
     } catch (error) {
@@ -218,6 +269,37 @@ export default function Home() {
     setEditDateValue('')
   }
 
+  const updateTodoScheduledDate = async (id: string, scheduledDate: Date | undefined | null) => {
+    if (!isAuthenticated) return
+
+    try {
+      await updateCloudTodo(id, { scheduledDate: scheduledDate || null })
+    } catch (error) {
+      console.error('Error updating scheduled date:', error)
+      showNotification('Failed to update scheduled date', 'error')
+    }
+  }
+
+  const startEditingScheduledDate = (todoId: string, currentDate?: Date | null) => {
+    setEditingScheduled(todoId)
+    setEditScheduledValue(currentDate ? format(currentDate, 'yyyy-MM-dd') : '')
+  }
+
+  const saveEditedScheduledDate = (todoId: string) => {
+    if (editScheduledValue) {
+      updateTodoScheduledDate(todoId, new Date(editScheduledValue + 'T00:00:00'))
+    } else {
+      updateTodoScheduledDate(todoId, null)
+    }
+    setEditingScheduled(null)
+    setEditScheduledValue('')
+  }
+
+  const cancelEditingScheduledDate = () => {
+    setEditingScheduled(null)
+    setEditScheduledValue('')
+  }
+
   const updateTodoTitle = async (id: string, title: string) => {
     if (!isAuthenticated) return
     
@@ -288,7 +370,17 @@ export default function Home() {
       return { weights: {}, sum: 0 }
     }
 
-    const activeTodos = todos.filter(todo => !todo.completed)
+    const today = startOfDay(new Date())
+    const activeTodos = todos.filter(todo => {
+      if (todo.completed) return false
+      if (todo.scheduledDate) {
+        const scheduledDate = startOfDay(new Date(todo.scheduledDate))
+        if (isAfter(scheduledDate, today)) {
+          return false
+        }
+      }
+      return true
+    })
     const weights: { [key: string]: number } = {}
     let sum = 0
 
@@ -370,6 +462,15 @@ export default function Home() {
     // No need to set state here
   }
 
+  const handleRefreshNow = () => {
+    window.location.reload()
+  }
+
+  const handleDismissVersionPrompt = () => {
+    dismissedVersionRef.current = serverVersion
+    setShowRefreshPrompt(false)
+  }
+
   // Check validity whenever relevant settings change
   useEffect(() => {
     checkYanResultsValidity()
@@ -415,6 +516,16 @@ export default function Home() {
   const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setNotification({ message, type })
     setTimeout(() => setNotification(null), 4000)
+  }
+
+  const copyToClipboard = async (value: string, successMessage: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+      showNotification(successMessage, 'success')
+    } catch (error) {
+      console.error('Clipboard copy failed:', error)
+      showNotification('Could not copy to clipboard', 'error')
+    }
   }
 
   // Calculate current base and probabilities in real-time
@@ -681,6 +792,8 @@ export default function Home() {
       }
   }
 
+  const isCompletedView = filter === 'completed'
+
   const filteredTodos = todos.filter(todo => {
     if (filter === 'active') return !todo.completed
     if (filter === 'completed') return todo.completed
@@ -694,12 +807,18 @@ export default function Home() {
     }
     
     if (sortBy === 'dueDate') {
-      if (!a.dueDate && !b.dueDate) return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      if (!a.dueDate && !b.dueDate) {
+        const createdComparison = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        return isCompletedView ? -createdComparison : createdComparison
+      }
       if (!a.dueDate) return 1
       if (!b.dueDate) return -1
-      return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+
+      const dueDateComparison = new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()
+      return isCompletedView ? -dueDateComparison : dueDateComparison
     }
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    const createdComparison = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    return isCompletedView ? -createdComparison : createdComparison
   })
 
   return (
@@ -749,6 +868,42 @@ export default function Home() {
             >
               <X size={16} />
             </button>
+          </div>
+        </div>
+      )}
+
+      {showRefreshPrompt && serverVersion && (
+        <div className="mb-6">
+          <div
+            className="rounded-lg border px-4 py-3 shadow-sm flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+            style={{ backgroundColor: 'var(--accent)', borderColor: 'var(--border)', color: 'var(--accent-foreground)' }}
+          >
+            <div>
+              <p className="font-semibold">New version available</p>
+              <p className="text-sm opacity-90">
+                You are on v{CLIENT_VERSION}. The latest version is v{serverVersion}. Refresh to load the newest experience.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleDismissVersionPrompt}
+                className="px-4 py-2 rounded-md border text-sm transition-colors"
+                style={{
+                  borderColor: 'var(--border)',
+                  backgroundColor: 'var(--card)',
+                  color: 'var(--muted-foreground)'
+                }}
+              >
+                Later
+              </button>
+              <button
+                onClick={handleRefreshNow}
+                className="px-4 py-2 rounded-md text-sm font-semibold transition-colors"
+                style={{ backgroundColor: 'var(--primary)', color: 'var(--primary-foreground)' }}
+              >
+                Refresh Now
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1265,7 +1420,7 @@ export default function Home() {
       )}
 
       {/* Unauthenticated State */}
-      {!isAuthenticated && !todosLoading && (
+      {isUnauthenticated && !todosLoading && (
         <div className="text-center py-12 px-4">
           <div className="max-w-md mx-auto">
             <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-blue-100 flex items-center justify-center">
@@ -1335,9 +1490,10 @@ export default function Home() {
               {isAdding ? 'Adding...' : 'Add'}
             </button>
           </div>
-          <div className="flex gap-4 items-center">
+          <div className="flex gap-4 items-center flex-wrap">
             <div className="flex gap-2 items-center">
-              <Calendar size={20} style={{color: 'var(--muted-foreground)'}} />
+              <Clock size={20} style={{color: 'var(--muted-foreground)'}} />
+              <span className="text-sm" style={{color: 'var(--muted-foreground)'}}>Due:</span>
               <input
                 type="date"
                 value={newDueDate}
@@ -1353,6 +1509,32 @@ export default function Home() {
               {newDueDate && (
                 <button
                   onClick={() => setNewDueDate('')}
+                  className="hover:opacity-70 text-sm"
+                  style={{color: 'var(--muted-foreground)'}}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2 items-center">
+              <Calendar size={20} style={{color: 'var(--muted-foreground)'}} />
+              <span className="text-sm" style={{color: 'var(--muted-foreground)'}}>Scheduled:</span>
+              <input
+                type="date"
+                value={newScheduledDate}
+                onChange={(e) => setNewScheduledDate(e.target.value)}
+                className="px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                style={{
+                  backgroundColor: 'var(--input)',
+                  color: 'var(--foreground)',
+                  border: '1px solid var(--border)'
+                }}
+                min={format(new Date(), 'yyyy-MM-dd')}
+                title="Schedule when this task should appear"
+              />
+              {newScheduledDate && (
+                <button
+                  onClick={() => setNewScheduledDate('')}
                   className="hover:opacity-70 text-sm"
                   style={{color: 'var(--muted-foreground)'}}
                 >
@@ -1393,8 +1575,44 @@ export default function Home() {
         </div>
       </div>
 
+      {/* View Switcher */}
+      <div className="mb-6">
+        <div className="rounded-lg shadow-md p-1 flex justify-center" style={{backgroundColor: 'var(--card)'}}>
+          <button
+            onClick={() => setCurrentView('list')}
+            className={`flex items-center gap-2 px-6 py-3 rounded-md transition-colors ${
+              currentView === 'list' ? '' : 'hover:bg-opacity-70'
+            }`}
+            style={currentView === 'list' ? {backgroundColor: 'var(--muted)', color: 'var(--foreground)'} : {color: 'var(--muted-foreground)'}}
+          >
+            <List size={20} />
+            <span className="font-medium">List</span>
+          </button>
+          <button
+            onClick={() => setCurrentView('calendar')}
+            className={`flex items-center gap-2 px-6 py-3 rounded-md transition-colors ${
+              currentView === 'calendar' ? '' : 'hover:bg-opacity-70'
+            }`}
+            style={currentView === 'calendar' ? {backgroundColor: 'var(--muted)', color: 'var(--foreground)'} : {color: 'var(--muted-foreground)'}}
+          >
+            <CalendarDays size={20} />
+            <span className="font-medium">Calendar</span>
+          </button>
+          <button
+            onClick={() => setCurrentView('analytics')}
+            className={`flex items-center gap-2 px-6 py-3 rounded-md transition-colors ${
+              currentView === 'analytics' ? '' : 'hover:bg-opacity-70'
+            }`}
+            style={currentView === 'analytics' ? {backgroundColor: 'var(--muted)', color: 'var(--foreground)'} : {color: 'var(--muted-foreground)'}}
+          >
+            <BarChart3 size={20} />
+            <span className="font-medium">Analytics</span>
+          </button>
+        </div>
+      </div>
+
       {/* Advanced Task Recommendation Section */}
-      {advancedRecommendations && (
+      {advancedRecommendations && currentView === 'list' && (
         <div className="mb-6">
           <div className="rounded-lg shadow-md p-6" style={{backgroundColor: 'var(--card)', color: 'var(--card-foreground)'}}>
             <div className="flex items-center justify-between mb-4">
@@ -1441,9 +1659,19 @@ export default function Home() {
                         {recommendedTask.priority === 'high' ? '🔥 High Priority' : '📝 Low Priority'}
                       </span>
                     </div>
-                    <h3 className="font-medium text-lg mb-1" style={{color: 'var(--card-foreground)'}}>
-                      {recommendedTask.title}
-                    </h3>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-medium text-lg" style={{color: 'var(--card-foreground)'}}>
+                        {recommendedTask.title}
+                      </h3>
+                      <button
+                        onClick={() => copyToClipboard(recommendedTask.title, 'Task name copied to clipboard')}
+                        className="p-2 rounded-md transition-colors hover:bg-blue-100 hover:text-blue-600"
+                        style={{ color: 'var(--muted-foreground)' }}
+                        title="Copy task name"
+                      >
+                        <Copy size={16} />
+                      </button>
+                    </div>
                     <div className="flex items-center gap-4 text-sm" style={{color: 'var(--muted-foreground)'}}>
                       <span>Created {format(new Date(recommendedTask.createdAt), 'MMM d, yyyy')}</span>
                       {recommendedTask.dueDate && (
@@ -1493,6 +1721,7 @@ export default function Home() {
       )}
 
       {/* Filter Tabs and Sort Options */}
+      {currentView === 'list' && (
       <div className="flex flex-col lg:flex-row justify-between items-center mb-6 gap-4">
         <div className="rounded-lg shadow-md p-1 flex" style={{backgroundColor: 'var(--card)'}}>
           {(['all', 'active', 'completed', 'overdue'] as const).map((filterType) => (
@@ -1564,8 +1793,10 @@ export default function Home() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Todo List */}
+      {currentView === 'list' && (
       <div className="space-y-3">
         {filteredTodos.length === 0 ? (
           <div className="text-center py-12">
@@ -1582,14 +1813,35 @@ export default function Home() {
               soon: 'text-yellow-600 bg-yellow-50',
               upcoming: 'text-blue-600 bg-blue-50'
             }
+            const scheduledDateValue = todo.scheduledDate ? new Date(todo.scheduledDate) : null
+            const isScheduledUpcoming = scheduledDateValue
+              ? isAfter(startOfDay(scheduledDateValue), startOfDay(new Date()))
+              : false
+
+            const baseCardClasses = `group rounded-lg shadow-md p-4 transition-all hover:shadow-lg relative ${
+              todo.completed ? 'opacity-75' : ''
+            }`
+            const borderClass = isScheduledUpcoming ? 'border-2 border-dashed border-blue-300' : 'border border-transparent'
+            const accentColor = dueDateStatus === 'overdue'
+              ? '#ef4444'
+              : todo.priority === 'high'
+              ? '#f97316'
+              : null
+            const cardClassName = `${baseCardClasses} ${borderClass}`
+            const cardStyle: CSSProperties = {
+              backgroundColor: 'var(--card)',
+              color: 'var(--card-foreground)'
+            }
+
+            if (accentColor) {
+              cardStyle.borderLeft = `4px solid ${accentColor}`
+            }
             
             return (
               <div
                 key={todo.id}
-                className={`group rounded-lg shadow-md p-4 transition-all hover:shadow-lg relative ${
-                  todo.completed ? 'opacity-75' : ''
-                } ${dueDateStatus === 'overdue' ? 'border-l-4 border-red-500' : todo.priority === 'high' ? 'border-l-4 border-orange-500' : ''}`}
-                style={{backgroundColor: 'var(--card)', color: 'var(--card-foreground)'}}
+                className={cardClassName}
+                style={cardStyle}
               >
                 <div className="flex items-start gap-4">
                   <button
@@ -1717,6 +1969,56 @@ export default function Home() {
                       <span style={{color: 'var(--muted-foreground)'}}>
                         Created {format(new Date(todo.createdAt), 'MMM d, yyyy')}
                       </span>
+                      {(editingScheduled === todo.id || scheduledDateValue) && (
+                        editingScheduled === todo.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="date"
+                              value={editScheduledValue}
+                              onChange={(e) => setEditScheduledValue(e.target.value)}
+                              className="px-2 py-1 text-xs rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              style={{
+                                backgroundColor: 'var(--input)',
+                                color: 'var(--foreground)',
+                                border: '1px solid var(--border)'
+                              }}
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => saveEditedScheduledDate(todo.id)}
+                              className="p-1 text-green-600 rounded transition-colors hover:bg-green-50"
+                              title="Save scheduled date"
+                            >
+                              <Save size={12} />
+                            </button>
+                            <button
+                              onClick={cancelEditingScheduledDate}
+                              className="p-1 rounded transition-colors"
+                              style={{color: 'var(--muted-foreground)'}}
+                              title="Cancel"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => startEditingScheduledDate(todo.id, scheduledDateValue)}
+                            className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-colors border ${
+                              isScheduledUpcoming
+                                ? 'border-dashed border-blue-300 text-blue-600 bg-blue-50 hover:bg-blue-100'
+                                : 'border-green-200 text-green-600 bg-green-50 hover:bg-green-100'
+                            }`}
+                            title="Click to edit scheduled date"
+                          >
+                            <CalendarDays size={12} />
+                            <span>
+                              {isScheduledUpcoming ? 'Scheduled for ' : 'Scheduled on '}
+                              {scheduledDateValue ? format(scheduledDateValue, 'MMM d, yyyy') : ''}
+                            </span>
+                            <Edit3 size={10} className="ml-1 opacity-60" />
+                          </button>
+                        )
+                      )}
                       
                       {todo.dueDate && (
                         <div className="flex items-center gap-1">
@@ -1781,6 +2083,26 @@ export default function Home() {
                   </div>
 
                   <div className="flex items-center gap-2 flex-shrink-0">
+                    {!todo.scheduledDate && editingScheduled !== todo.id && (
+                      <button
+                        onClick={() => startEditingScheduledDate(todo.id)}
+                        className="p-2 text-blue-500 rounded-lg transition-colors hover:bg-blue-50"
+                        title="Add scheduled date"
+                      >
+                        <CalendarDays size={16} />
+                      </button>
+                    )}
+
+                    {todo.scheduledDate && editingScheduled !== todo.id && (
+                      <button
+                        onClick={() => updateTodoScheduledDate(todo.id, undefined)}
+                        className="p-2 text-blue-500 rounded-lg transition-colors hover:bg-blue-50"
+                        title="Remove scheduled date"
+                      >
+                        <CalendarX size={16} />
+                      </button>
+                    )}
+
                     {!todo.dueDate && editingDate !== todo.id && (
                       <button
                         onClick={() => startEditingDate(todo.id)}
@@ -1852,8 +2174,10 @@ export default function Home() {
           })
         )}
       </div>
+      )}
 
       {/* Stats */}
+      {currentView === 'list' && (
       <div className="mt-8 rounded-lg shadow-md p-6" style={{backgroundColor: 'var(--card)', color: 'var(--card-foreground)'}}>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-center">
           <div>
@@ -1886,6 +2210,17 @@ export default function Home() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Calendar View */}
+      {currentView === 'calendar' && (
+        <CalendarView todos={todos} onToggleTodo={toggleTodo} />
+      )}
+
+      {/* Analytics View */}
+      {currentView === 'analytics' && (
+        <AnalyticsView todos={todos} />
+      )}
       </>
       )}
 
@@ -1938,6 +2273,13 @@ export default function Home() {
             <p className="text-sm" style={{color: 'var(--muted-foreground)'}}>
               © {new Date().getFullYear()} YanToDoList. All rights reserved.
             </p>
+          </div>
+
+          <div style={{color: 'var(--muted-foreground)'}}>
+            <div className="inline-flex items-center gap-2 text-sm font-mono">
+              <GitBranch size={16} className="text-blue-500" />
+              <span>Version {CLIENT_VERSION}</span>
+            </div>
           </div>
         </div>
       </footer>

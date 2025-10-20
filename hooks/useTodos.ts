@@ -10,6 +10,7 @@ export interface Todo {
   completed: boolean
   priority: 'low' | 'high'
   dueDate?: Date | null
+  scheduledDate?: Date | null
   createdAt: Date
   updatedAt: Date
   userId: string
@@ -40,6 +41,7 @@ export function useTodos() {
       completed: todo.completed || false,
       priority: todo.priority || 'low',
       dueDate: todo.dueDate || null,
+      scheduledDate: todo.scheduledDate || null,
       createdAt: new Date(),
       updatedAt: new Date(),
       userId: session.user.id,

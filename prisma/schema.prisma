@@ -63,21 +63,23 @@ model VerificationToken {
 }
 
 model Todo {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  completed   Boolean  @default(false)
-  priority    String   @default("low") // 'low', 'high'
-  dueDate     DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  userId      String
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  completed     Boolean  @default(false)
+  priority      String   @default("low") // 'low', 'high'
+  dueDate       DateTime?
+  scheduledDate DateTime? // Date when task becomes visible/active
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  userId        String
   
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([completed])
   @@index([dueDate])
+  @@index([scheduledDate])
 }
 
 model UserSettings {

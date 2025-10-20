@@ -18,12 +18,12 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    const todos = await prisma.todo.findMany({
+    const allTodos = await prisma.todo.findMany({
       where: { userId: session.user.id },
       orderBy: { createdAt: 'desc' }
     })
 
-    return NextResponse.json(todos)
+    return NextResponse.json(allTodos)
   } catch (error) {
     console.error('Error fetching todos:', error)
     return NextResponse.json(
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { title, description, priority, dueDate, completed } = await req.json()
+    const { title, description, priority, dueDate, completed, scheduledDate } = await req.json()
 
     if (!title) {
       return NextResponse.json(
@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
         description: description || null,
         priority: priority || 'medium',
         dueDate: dueDate ? new Date(dueDate) : null,
+        scheduledDate: scheduledDate ? new Date(scheduledDate) : null,
         completed: completed || false,
         userId: session.user.id,
       }
