@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get user's settings and active todos for weight calculation
-    const [settings, todos] = await Promise.all([
+    const [settings, allTodos] = await Promise.all([
       prisma.userSettings.findUnique({
         where: { userId: session.user.id }
       }),
@@ -31,6 +31,21 @@ export async function POST(req: NextRequest) {
         }
       })
     ])
+
+    // Filter out tasks scheduled for the future
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
+    const todos = allTodos.filter(todo => {
+      if (todo.scheduledDate) {
+        const scheduledDate = new Date(todo.scheduledDate)
+        scheduledDate.setHours(0, 0, 0, 0)
+        // Only include tasks scheduled for today or earlier
+        return scheduledDate <= today
+      }
+      // Include tasks without a scheduled date
+      return true
+    })
 
     // Use settings or defaults
     const numCategories = settings?.numCategories ?? 3

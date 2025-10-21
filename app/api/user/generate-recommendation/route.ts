@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Get user's todos and settings
-    const [todos, settings] = await Promise.all([
+    const [allTodos, settings] = await Promise.all([
       prisma.todo.findMany({
         where: { 
           userId: session.user.id,
@@ -32,6 +32,21 @@ export async function POST(req: NextRequest) {
         where: { userId: session.user.id }
       })
     ])
+
+    // Filter out tasks scheduled for the future
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    
+    const todos = allTodos.filter(todo => {
+      if (todo.scheduledDate) {
+        const scheduledDate = new Date(todo.scheduledDate)
+        scheduledDate.setHours(0, 0, 0, 0)
+        // Only include tasks scheduled for today or earlier
+        return scheduledDate <= today
+      }
+      // Include tasks without a scheduled date
+      return true
+    })
 
     if (todos.length === 0) {
       return NextResponse.json({ 

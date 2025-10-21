@@ -696,7 +696,18 @@ export default function Home() {
   }
 
   const generateRandomRecommendation = async () => {
-    const activeTodos = todos.filter(todo => !todo.completed)
+    // Filter out completed tasks and tasks scheduled for the future
+    const today = startOfDay(new Date())
+    const activeTodos = todos.filter(todo => {
+      if (todo.completed) return false
+      if (todo.scheduledDate) {
+        const scheduledDate = startOfDay(new Date(todo.scheduledDate))
+        if (isAfter(scheduledDate, today)) {
+          return false
+        }
+      }
+      return true
+    })
     
     if (activeTodos.length === 0) {
       setRecommendedTask(null)

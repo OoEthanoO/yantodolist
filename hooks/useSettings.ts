@@ -101,7 +101,23 @@ export function useSettings() {
       const todosRes = await fetch('/api/todos')
       if (!todosRes.ok) throw new Error('Failed to fetch todos')
       const todos = await todosRes.json()
-      const activeTodos = (todos || []).filter((t: any) => !t.completed)
+      
+      // Filter out completed tasks and tasks scheduled for the future
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      
+      const activeTodos = (todos || []).filter((t: any) => {
+        if (t.completed) return false
+        if (t.scheduledDate) {
+          const scheduledDate = new Date(t.scheduledDate)
+          scheduledDate.setHours(0, 0, 0, 0)
+          // Only include tasks scheduled for today or earlier
+          return scheduledDate <= today
+        }
+        // Include tasks without a scheduled date
+        return true
+      })
+      
       if (activeTodos.length === 0) {
         // Clear any previous recommendation if no active tasks
         await updateSettings({ lastRecommendedTodoId: null, lastRecommendationTime: null })
