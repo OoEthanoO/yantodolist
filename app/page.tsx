@@ -114,6 +114,8 @@ export default function Home() {
   const [currentSum, setCurrentSum] = useState<number>(0)
   const [currentProbabilities, setCurrentProbabilities] = useState<number[]>([])
   
+  // Track current date to trigger recalculation when day changes
+  const [currentDate, setCurrentDate] = useState(() => format(new Date(), 'yyyy-MM-dd'))
 
   // NOTE: Todos are now loaded from cloud via useTodos() hook
   // Settings are now loaded from cloud via useSettings() hook
@@ -132,6 +134,26 @@ export default function Home() {
     }
     setRecommendedTask(null)
   }, [settings?.lastRecommendedTodoId, settings?.lastRecommendationTime, todos])
+
+  // Check for day changes to trigger weight recalculation
+  useEffect(() => {
+    const checkDayChange = () => {
+      const newDate = format(new Date(), 'yyyy-MM-dd')
+      if (newDate !== currentDate) {
+        setCurrentDate(newDate)
+      }
+    }
+
+    // Check immediately
+    checkDayChange()
+    
+    // Check every minute for day changes
+    const intervalId = setInterval(checkDayChange, 60000)
+
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [currentDate])
 
   useEffect(() => {
     let isMounted = true
@@ -410,7 +432,7 @@ export default function Home() {
     }
 
     return { weights, sum }
-  }, [todos, advancedRecommendations])
+  }, [todos, advancedRecommendations, currentDate])
 
   // Check if YanAlgorithm results are outdated (moved after totalWeight calculation)
   const isYanResultsOutdated = useMemo(() => {
