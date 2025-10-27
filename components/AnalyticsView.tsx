@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { format, startOfDay, subDays, addDays, eachDayOfInterval, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns'
+import { format, startOfDay, subDays, addDays, eachDayOfInterval, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, endOfMonth as getEndOfMonth } from 'date-fns'
 import { TrendingUp, CheckCircle2, ListTodo, Clock, Target, Calendar as CalendarIcon } from 'lucide-react'
 
 interface Todo {
@@ -47,7 +47,7 @@ type SummaryRange = '7' | '31' | '365'
 const summaryRangeOptions: { value: SummaryRange; label: string }[] = [
   { value: '7', label: 'Last 7 Days' },
   { value: '31', label: 'Last 30 Days' },
-  { value: '365', label: 'Last 365 Days' },
+  { value: '365', label: 'Last Year' },
 ]
 
 interface LineChartProps {
@@ -372,7 +372,46 @@ export default function AnalyticsView({ todos }: AnalyticsViewProps) {
   // Generate data for charts
   const chartData = useMemo<ChartDatum[]>(() => {
     const today = startOfDay(new Date())
-    const days = eachDayOfInterval({ start: subDays(today, 30), end: today })
+    
+    // For 365 days, show monthly data (12 months)
+    if (summaryRange === '365') {
+      const months = eachMonthOfInterval({ 
+        start: startOfMonth(subMonths(today, 11)), 
+        end: startOfMonth(today) 
+      })
+      
+      const monthlyData = months.map(month => {
+        const monthStart = startOfMonth(month)
+        const monthEnd = getEndOfMonth(month)
+        monthEnd.setHours(23, 59, 59, 999)
+
+        const created = todos.filter(t => {
+          const createdAt = new Date(t.createdAt)
+          return createdAt >= monthStart && createdAt <= monthEnd
+        }).length
+
+        const completed = todos.filter(t => {
+          if (!t.completed) return false
+          const updatedAt = new Date(t.updatedAt)
+          return updatedAt >= monthStart && updatedAt <= monthEnd
+        }).length
+
+        const total = todos.filter(t => new Date(t.createdAt) <= monthEnd).length
+
+        return {
+          date: format(month, 'MMM yyyy'),
+          created,
+          completed,
+          total,
+        }
+      })
+
+      return monthlyData
+    }
+    
+    // For 7 or 31 days, show daily data
+    const daysToShow = summaryRange === '7' ? 6 : 30
+    const days = eachDayOfInterval({ start: subDays(today, daysToShow), end: today })
 
     const dailyData = days.map(day => {
       const dayStart = startOfDay(day)
@@ -401,11 +440,22 @@ export default function AnalyticsView({ todos }: AnalyticsViewProps) {
     })
 
     return dailyData
-  }, [todos])
+  }, [todos, summaryRange])
 
   const xAxisLabels = useMemo(() => {
     if (chartData.length === 0) return [] as { label: string; idx: number }[]
 
+    // For 365 days (12 months), show all month labels
+    if (summaryRange === '365') {
+      return chartData.map((_, idx) => ({ label: chartData[idx].date, idx }))
+    }
+    
+    // For 7 days, show all labels
+    if (summaryRange === '7') {
+      return chartData.map((_, idx) => ({ label: chartData[idx].date, idx }))
+    }
+    
+    // For 31 days, show labels every 5 days
     const step = 5
     const lastIndex = chartData.length - 1
     const indices: number[] = []
@@ -420,12 +470,26 @@ export default function AnalyticsView({ todos }: AnalyticsViewProps) {
 
     const uniqueIndices = Array.from(new Set(indices)).sort((a, b) => a - b)
     return uniqueIndices.map(idx => ({ label: chartData[idx].date, idx }))
-  }, [chartData])
+  }, [chartData, summaryRange])
 
   // Find max values for scaling
   const maxCreated = Math.max(...chartData.map(d => d.created), 1)
   const maxCompleted = Math.max(...chartData.map(d => d.completed), 1)
   const maxTotal = Math.max(...chartData.map(d => d.total), 1)
+
+  // Get timeframe display text
+  const getTimeframeText = () => {
+    switch (summaryRange) {
+      case '7':
+        return 'Last 7 Days'
+      case '31':
+        return 'Last 30 Days'
+      case '365':
+        return 'Last 12 Months'
+      default:
+        return 'Last 31 Days'
+    }
+  }
 
   const windowSummary = metrics.windowSummary
   const averageCreatedPerDayDisplay = windowSummary ? windowSummary.avgCreatedPerDay.toFixed(1) : '0.0'
@@ -446,7 +510,17 @@ export default function AnalyticsView({ todos }: AnalyticsViewProps) {
       return (
         <div className="flex justify-between items-center h-full text-xs" style={{ color: 'var(--muted-foreground)' }}>
           {xAxisLabels.map(({ label }, idx) => (
-            <span key={`${label}-${idx}`}>{label}</span>
+            <span 
+              key={`${label}-${idx}`}
+              style={summaryRange === '365' ? {
+                display: 'inline-block',
+                transform: 'rotate(-45deg)',
+                transformOrigin: 'top left',
+                fontSize: '10px',
+              } : {}}
+            >
+              {label}
+            </span>
           ))}
         </div>
       )
@@ -464,11 +538,16 @@ export default function AnalyticsView({ todos }: AnalyticsViewProps) {
           return (
             <span
               key={`${label}-${idx}`}
-              className="absolute bottom-0"
+              className="absolute"
               style={{
                 left: `${clampedLeft}px`,
-                transform: 'translateX(-50%)',
+                bottom: summaryRange === '365' ? '0' : '0',
+                transform: summaryRange === '365' 
+                  ? 'rotate(-45deg) translateX(-50%)' 
+                  : 'translateX(-50%)',
+                transformOrigin: summaryRange === '365' ? 'bottom left' : 'center',
                 whiteSpace: 'nowrap',
+                fontSize: summaryRange === '365' ? '10px' : '12px',
               }}
             >
               {label}
@@ -548,7 +627,7 @@ export default function AnalyticsView({ todos }: AnalyticsViewProps) {
                 <button
                   key={option.value}
                   onClick={() => setSummaryRange(option.value)}
-                  className={`px-3 py-1.5 rounded-full text-sm transition-all border ${isActive ? 'font-semibold shadow-sm' : ''}`}
+                  className={`px-3 py-1.5 rounded-full text-sm transition-all border cursor-pointer ${isActive ? 'font-semibold shadow-sm' : ''}`}
                   style={
                     isActive
                       ? { backgroundColor: 'rgba(59, 130, 246, 0.12)', color: '#1d4ed8', borderColor: '#3b82f6' }
@@ -640,7 +719,7 @@ export default function AnalyticsView({ todos }: AnalyticsViewProps) {
         <div className="rounded-lg shadow-md p-6" style={{ backgroundColor: 'var(--card)' }}>
           <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--foreground)' }}>
             <TrendingUp size={18} className="text-blue-500" />
-            Tasks Created (Last 30 Days)
+            Tasks Created ({getTimeframeText()})
           </h3>
           <div className="relative h-64 mt-6">
             {/* Y-axis labels */}
@@ -691,7 +770,7 @@ export default function AnalyticsView({ todos }: AnalyticsViewProps) {
         <div className="rounded-lg shadow-md p-6" style={{ backgroundColor: 'var(--card)' }}>
           <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--foreground)' }}>
             <CheckCircle2 size={18} className="text-green-500" />
-            Tasks Completed (Last 30 Days)
+            Tasks Completed ({getTimeframeText()})
           </h3>
           <div className="relative h-64 mt-6">
             {/* Y-axis labels */}
@@ -742,7 +821,7 @@ export default function AnalyticsView({ todos }: AnalyticsViewProps) {
         <div className="rounded-lg shadow-md p-6" style={{ backgroundColor: 'var(--card)' }}>
           <h3 className="font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--foreground)' }}>
             <ListTodo size={18} className="text-purple-500" />
-            Total Tasks Trend (Last 30 Days)
+            Total Tasks Trend ({getTimeframeText()})
           </h3>
           <div className="relative h-64 mt-6">
             {/* Y-axis labels */}
@@ -799,41 +878,69 @@ export default function AnalyticsView({ todos }: AnalyticsViewProps) {
           </h3>
           <div className="space-y-3 text-sm">
             {metrics.completionRate >= 80 && (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-green-50" style={{ borderLeft: '4px solid #22c55e' }}>
+              <div 
+                className="flex items-start gap-2 p-3 rounded-lg border" 
+                style={{ 
+                  backgroundColor: 'rgba(34, 197, 94, 0.08)',
+                  borderLeft: '4px solid #22c55e',
+                  borderColor: 'rgba(34, 197, 94, 0.2)'
+                }}
+              >
                 <CheckCircle2 size={16} className="text-green-500 mt-0.5" />
                 <div>
-                  <p className="font-medium text-green-700">Excellent Progress!</p>
-                  <p className="text-green-600">You've completed {metrics.completionRate.toFixed(0)}% of your tasks. Keep up the great work!</p>
+                  <p className="font-medium text-green-600">Excellent Progress!</p>
+                  <p className="text-green-600 opacity-90">You've completed {metrics.completionRate.toFixed(0)}% of your tasks. Keep up the great work!</p>
                 </div>
               </div>
             )}
             
             {metrics.overdueTasks > 0 && (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50" style={{ borderLeft: '4px solid #ef4444' }}>
+              <div 
+                className="flex items-start gap-2 p-3 rounded-lg border" 
+                style={{ 
+                  backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                  borderLeft: '4px solid #ef4444',
+                  borderColor: 'rgba(239, 68, 68, 0.2)'
+                }}
+              >
                 <CalendarIcon size={16} className="text-red-500 mt-0.5" />
                 <div>
-                  <p className="font-medium text-red-700">Overdue Tasks</p>
-                  <p className="text-red-600">You have {metrics.overdueTasks} overdue {metrics.overdueTasks === 1 ? 'task' : 'tasks'}. Consider prioritizing them.</p>
+                  <p className="font-medium text-red-600">Overdue Tasks</p>
+                  <p className="text-red-600 opacity-90">You have {metrics.overdueTasks} overdue {metrics.overdueTasks === 1 ? 'task' : 'tasks'}. Consider prioritizing them.</p>
                 </div>
               </div>
             )}
 
             {metrics.highPriorityTasks > 5 && (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-orange-50" style={{ borderLeft: '4px solid #f97316' }}>
+              <div 
+                className="flex items-start gap-2 p-3 rounded-lg border" 
+                style={{ 
+                  backgroundColor: 'rgba(249, 115, 22, 0.08)',
+                  borderLeft: '4px solid #f97316',
+                  borderColor: 'rgba(249, 115, 22, 0.2)'
+                }}
+              >
                 <Target size={16} className="text-orange-500 mt-0.5" />
                 <div>
-                  <p className="font-medium text-orange-700">Many High Priority Tasks</p>
-                  <p className="text-orange-600">You have {metrics.highPriorityTasks} high priority tasks. Focus on completing a few each day.</p>
+                  <p className="font-medium text-orange-600">Many High Priority Tasks</p>
+                  <p className="text-orange-600 opacity-90">You have {metrics.highPriorityTasks} high priority tasks. Focus on completing a few each day.</p>
                 </div>
               </div>
             )}
 
             {metrics.tasksLast7Days > 10 && (
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50" style={{ borderLeft: '4px solid #3b82f6' }}>
+              <div 
+                className="flex items-start gap-2 p-3 rounded-lg border" 
+                style={{ 
+                  backgroundColor: 'rgba(59, 130, 246, 0.08)',
+                  borderLeft: '4px solid #3b82f6',
+                  borderColor: 'rgba(59, 130, 246, 0.2)'
+                }}
+              >
                 <TrendingUp size={16} className="text-blue-500 mt-0.5" />
                 <div>
-                  <p className="font-medium text-blue-700">Very Active!</p>
-                  <p className="text-blue-600">You've created {metrics.tasksLast7Days} tasks in the last week. You're staying productive!</p>
+                  <p className="font-medium text-blue-600">Very Active!</p>
+                  <p className="text-blue-600 opacity-90">You've created {metrics.tasksLast7Days} tasks in the last week. You're staying productive!</p>
                 </div>
               </div>
             )}

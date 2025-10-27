@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useMemo, useRef, type CSSProperties } from 'react'
 import { useSession } from 'next-auth/react'
-import { Plus, Check, Trash2, Calendar, CalendarX, User, Clock, AlertCircle, Edit3, Save, X, Flag, ArrowUp, ArrowDown, SortAsc, Settings, Sparkles, Download, Upload, LogIn, Loader2, BarChart3, CalendarDays, List, GitBranch, Copy } from 'lucide-react'
+import { Plus, Check, Trash2, Calendar, CalendarX, User, Clock, AlertCircle, Edit3, Save, X, Flag, ArrowUp, ArrowDown, SortAsc, Settings, Sparkles, Download, Upload, LogIn, Loader2, BarChart3, CalendarDays, List, GitBranch, Copy, Filter, CheckCircle2, Circle, AlertTriangle } from 'lucide-react'
 import { APP_VERSION } from '@/lib/version'
 
 const CLIENT_VERSION = APP_VERSION
@@ -24,6 +24,7 @@ interface Todo {
   priority: 'low' | 'high'
   dueDate?: Date | null
   scheduledDate?: Date | null
+  constantDueDays?: number | null
   createdAt: Date
   updatedAt: Date
   userId?: string
@@ -65,16 +66,25 @@ export default function Home() {
   const [newDueDate, setNewDueDate] = useState('')
   const [newScheduledDate, setNewScheduledDate] = useState('')
   const [newPriority, setNewPriority] = useState<'low' | 'high'>('low')
+  const [newConstantDueDays, setNewConstantDueDays] = useState('')
   const [editingDate, setEditingDate] = useState<string | null>(null)
   const [editDateValue, setEditDateValue] = useState('')
   const [editingScheduled, setEditingScheduled] = useState<string | null>(null)
   const [editScheduledValue, setEditScheduledValue] = useState('')
+  const [editingConstantDue, setEditingConstantDue] = useState<string | null>(null)
+  const [editConstantDueValue, setEditConstantDueValue] = useState('')
   const [editingPriority, setEditingPriority] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState<string | null>(null)
   const [editTitleValue, setEditTitleValue] = useState('')
   const [showSettings, setShowSettings] = useState(false)
   const [recommendedTask, setRecommendedTask] = useState<Todo | null>(null)
   const [isGeneratingRecommendation, setIsGeneratingRecommendation] = useState(false)
+  const [lastRecommendationMetadata, setLastRecommendationMetadata] = useState<{
+    totalWeight: number
+    effectiveWeight: number
+    randomValue: number
+    generatedAt: string
+  } | null>(null)
   const [notification, setNotification] = useState<{message: string, type: 'success' | 'error' | 'info'} | null>(null)
   const [currentView, setCurrentView] = useState<'list' | 'calendar' | 'analytics'>('list')
   const [serverVersion, setServerVersion] = useState<string | null>(null)
@@ -95,6 +105,7 @@ export default function Home() {
   const useCustomBase = settings?.useCustomBase ?? false
   const customBase = settings?.customBase ?? 2.93
   const useHalfWeight = settings?.useHalfWeight ?? false
+  const hideScheduledTasks = settings?.hideScheduledTasks ?? false
   // Keep a local draft of the custom base so users can type partial decimals like "2." without it snapping
   const [customBaseInput, setCustomBaseInput] = useState(customBase.toString())
   useEffect(() => {
@@ -214,11 +225,13 @@ export default function Home() {
         priority: newPriority,
         dueDate: newDueDate ? new Date(newDueDate + 'T00:00:00') : null,
         scheduledDate: newScheduledDate ? new Date(newScheduledDate + 'T00:00:00') : null,
+        constantDueDays: newConstantDueDays ? parseInt(newConstantDueDays) : null,
       })
       
       setNewTodo('')
       setNewDueDate('')
       setNewScheduledDate('')
+      setNewConstantDueDays('')
       setNewPriority('low')
       showNotification('Task added successfully!', 'success')
     } catch (error) {
@@ -264,7 +277,8 @@ export default function Home() {
     if (!isAuthenticated) return
     
     try {
-      await updateCloudTodo(id, { dueDate: dueDate || null })
+      // When setting a due date, clear constantDueDays (mutually exclusive)
+      await updateCloudTodo(id, { dueDate: dueDate || null, constantDueDays: null })
     } catch (error) {
       console.error('Error updating due date:', error)
       showNotification('Failed to update due date', 'error')
@@ -322,6 +336,38 @@ export default function Home() {
     setEditScheduledValue('')
   }
 
+  const updateTodoConstantDueDays = async (id: string, constantDueDays: number | undefined | null) => {
+    if (!isAuthenticated) return
+
+    try {
+      // When setting constantDueDays, clear dueDate (mutually exclusive)
+      await updateCloudTodo(id, { constantDueDays: constantDueDays || null, dueDate: null })
+    } catch (error) {
+      console.error('Error updating constant due days:', error)
+      showNotification('Failed to update constant due days', 'error')
+    }
+  }
+
+  const startEditingConstantDue = (todoId: string, currentDays?: number | null) => {
+    setEditingConstantDue(todoId)
+    setEditConstantDueValue(currentDays ? currentDays.toString() : '')
+  }
+
+  const saveEditedConstantDue = (todoId: string) => {
+    if (editConstantDueValue && parseInt(editConstantDueValue) > 0) {
+      updateTodoConstantDueDays(todoId, parseInt(editConstantDueValue))
+    } else {
+      updateTodoConstantDueDays(todoId, null)
+    }
+    setEditingConstantDue(null)
+    setEditConstantDueValue('')
+  }
+
+  const cancelEditingConstantDue = () => {
+    setEditingConstantDue(null)
+    setEditConstantDueValue('')
+  }
+
   const updateTodoTitle = async (id: string, title: string) => {
     if (!isAuthenticated) return
     
@@ -371,11 +417,25 @@ export default function Home() {
   }
 
   const isOverdue = (todo: Todo) => {
+    // If constantDueDays is set, calculate effective due date
+    if (todo.constantDueDays !== undefined && todo.constantDueDays !== null) {
+      const effectiveDueDate = addDays(startOfDay(new Date()), todo.constantDueDays)
+      return false // Constant due tasks are never truly overdue since they update daily
+    }
     if (!todo.dueDate || todo.completed) return false
     return isBefore(startOfDay(new Date(todo.dueDate)), startOfDay(new Date()))
   }
 
   const getDueDateStatus = (todo: Todo) => {
+    // Handle constant due days
+    if (todo.constantDueDays !== undefined && todo.constantDueDays !== null) {
+      const days = todo.constantDueDays
+      if (days === 0) return 'today'
+      if (days < 0) return 'overdue'
+      if (days <= 2) return 'soon'
+      return 'upcoming'
+    }
+    
     if (!todo.dueDate) return null
     const today = startOfDay(new Date())
     const dueDate = startOfDay(new Date(todo.dueDate))
@@ -409,7 +469,12 @@ export default function Home() {
     for (const todo of activeTodos) {
       let weight: number
 
-      if (todo.dueDate) {
+      // Handle constant due days first (overrides regular due date)
+      if (todo.constantDueDays !== undefined && todo.constantDueDays !== null) {
+        const daysDifference = todo.constantDueDays
+        const doubleDays: number = daysDifference > 0 ? daysDifference : 1 / (-daysDifference + 2)
+        weight = 1 / doubleDays
+      } else if (todo.dueDate) {
         // Calculate days until due date
         const today = startOfDay(new Date())
         const dueDate = startOfDay(new Date(todo.dueDate))
@@ -472,6 +537,7 @@ export default function Home() {
   const setPriorityFirst = (newPriorityFirst: boolean) => updateSettings({ priorityFirst: newPriorityFirst })
   const setAdvancedRecommendations = (newAdvancedRecommendations: boolean) => updateSettings({ advancedRecommendations: newAdvancedRecommendations })
   const setStatsForNerds = (newStatsForNerds: boolean) => updateSettings({ statsForNerds: newStatsForNerds })
+  const setHideScheduledTasks = (newHideScheduledTasks: boolean) => updateSettings({ hideScheduledTasks: newHideScheduledTasks })
   const setNumCategories = (newNumCategories: number) => updateSettings({ numCategories: newNumCategories })
   const setUseCustomBase = (newUseCustomBase: boolean) => updateSettings({ useCustomBase: newUseCustomBase })
   const setCustomBase = (newCustomBase: number) => updateSettings({ customBase: newCustomBase })
@@ -742,6 +808,15 @@ export default function Home() {
       const result = await generateRecommendation()
       if (result?.recommendation) {
         setRecommendedTask(result.recommendation)
+        // Store metadata for debug panel
+        if (result.totalWeight !== undefined && result.effectiveWeight !== undefined && result.randomValue !== undefined) {
+          setLastRecommendationMetadata({
+            totalWeight: result.totalWeight,
+            effectiveWeight: result.effectiveWeight,
+            randomValue: result.randomValue,
+            generatedAt: result.generatedAt || new Date().toISOString()
+          })
+        }
         showNotification('New task recommendation generated!', 'success')
       }
     } catch (error) {
@@ -831,6 +906,16 @@ export default function Home() {
     if (filter === 'active') return !todo.completed
     if (filter === 'completed') return todo.completed
     if (filter === 'overdue') return isOverdue(todo)
+    return true
+  }).filter(todo => {
+    // Hide scheduled tasks if the toggle is enabled
+    if (hideScheduledTasks && todo.scheduledDate) {
+      const today = startOfDay(new Date())
+      const scheduledDate = startOfDay(new Date(todo.scheduledDate))
+      if (isAfter(scheduledDate, today)) {
+        return false
+      }
+    }
     return true
   }).sort((a, b) => {
     // Priority sorting: high -> low (only if priorityFirst is enabled)
@@ -983,7 +1068,7 @@ export default function Home() {
               </div>
               <button
                 onClick={() => setAdvancedRecommendations(!advancedRecommendations)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 cursor-pointer ${
                   advancedRecommendations ? 'bg-blue-500' : 'bg-gray-300'
                 }`}
                 style={!advancedRecommendations ? {backgroundColor: 'var(--border)'} : {}}
@@ -1025,7 +1110,7 @@ export default function Home() {
                   {/* Export Button */}
                   <button
                     onClick={exportTasks}
-                    className="flex-1 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center gap-2 font-medium"
+                    className="flex-1 px-4 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center gap-2 font-medium cursor-pointer"
                     title="Export all tasks to a JSON file"
                   >
                     <Download size={16} />
@@ -1130,6 +1215,29 @@ export default function Home() {
                     <span>Has Weights:</span>
                     <span className="font-mono">{Object.keys(taskWeights).length > 0 ? 'Yes' : 'No'}</span>
                   </div>
+                  
+                  {/* Last Recommendation Metadata */}
+                  {lastRecommendationMetadata && (
+                    <>
+                      <div className="mt-3 pt-2 border-t" style={{borderColor: 'var(--border)'}}>
+                        <div className="font-medium mb-1" style={{color: 'var(--card-foreground)'}}>
+                          Last Recommendation:
+                        </div>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Effective Weight:</span>
+                        <span className="font-mono">{lastRecommendationMetadata.effectiveWeight.toFixed(4)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Random Value:</span>
+                        <span className="font-mono">{lastRecommendationMetadata.randomValue.toFixed(4)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Generated:</span>
+                        <span className="font-mono text-xs">{new Date(lastRecommendationMetadata.generatedAt).toLocaleTimeString()}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -1176,7 +1284,7 @@ export default function Home() {
                     </label>
                     <button
                       onClick={() => setUseCustomBase(!useCustomBase)}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 cursor-pointer ${
                         useCustomBase ? 'bg-blue-500' : 'bg-gray-300'
                       }`}
                       style={!useCustomBase ? {backgroundColor: 'var(--border)'} : {}}
@@ -1254,7 +1362,7 @@ export default function Home() {
                     </div>
                     <button
                       onClick={() => setUseHalfWeight(!useHalfWeight)}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 ${
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 cursor-pointer ${
                         useHalfWeight ? 'bg-orange-500' : 'bg-gray-300'
                       }`}
                       style={!useHalfWeight ? {backgroundColor: 'var(--border)'} : {}}
@@ -1350,7 +1458,7 @@ export default function Home() {
                   <div className="space-y-2">
                     <button
                       onClick={generateRandomNumberLocal}
-                      className="w-full px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-sm font-medium"
+                      className="w-full px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-sm font-medium cursor-pointer"
                     >
                       Generate Weighted Random
                     </button>
@@ -1375,7 +1483,7 @@ export default function Home() {
                           <span className="text-xs font-medium">Results may be outdated - settings have changed</span>
                           <button
                             onClick={generateRandomNumberLocal}
-                            className="ml-2 px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors"
+                            className="ml-2 px-2 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 transition-colors cursor-pointer"
                           >
                             Update
                           </button>
@@ -1391,51 +1499,391 @@ export default function Home() {
             {advancedRecommendations && Object.keys(taskWeights).length > 0 && (
               <div className="mt-4">
                 <h3 className="font-medium mb-2" style={{color: 'var(--card-foreground)'}}>
-                  Individual Task Weights
+                  Individual Task Weights & Calculations
                 </h3>
                 <div 
-                  className="p-3 rounded-md max-h-32 overflow-y-auto"
+                  className="p-3 rounded-md max-h-96 overflow-y-auto"
                   style={{backgroundColor: 'var(--muted)'}}
                 >
-                  <div className="space-y-1 text-sm">
-                    {todos.filter(t => !t.completed).map(todo => (
-                      <div key={todo.id} className="flex justify-between items-center">
-                        <span 
-                          className="truncate max-w-xs"
-                          style={{color: 'var(--card-foreground)'}}
-                          title={todo.title}
+                  <div className="space-y-3 text-sm">
+                    {todos.filter(t => !t.completed).map(todo => {
+                      // Calculate detailed breakdown for each task
+                      let baseWeight: number
+                      let daysInfo: string = ''
+                      
+                      // Handle constant due days first (overrides regular due date)
+                      if (todo.constantDueDays !== undefined && todo.constantDueDays !== null) {
+                        const daysDifference = todo.constantDueDays
+                        const doubleDays = daysDifference > 0 ? daysDifference : 1 / (-daysDifference + 2)
+                        baseWeight = 1 / doubleDays
+                        daysInfo = `Always due in ${daysDifference} ${daysDifference === 1 ? 'day' : 'days'}`
+                      } else if (todo.dueDate) {
+                        const today = new Date()
+                        today.setHours(0, 0, 0, 0)
+                        const dueDate = new Date(todo.dueDate)
+                        dueDate.setHours(0, 0, 0, 0)
+                        const daysDifference = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+                        
+                        const doubleDays = daysDifference > 0 ? daysDifference : 1 / (-daysDifference + 2)
+                        baseWeight = 1 / doubleDays
+                        
+                        if (daysDifference > 0) {
+                          daysInfo = `${daysDifference} days away`
+                        } else if (daysDifference === 0) {
+                          daysInfo = 'Due today'
+                        } else {
+                          daysInfo = `${Math.abs(daysDifference)} days overdue`
+                        }
+                      } else {
+                        baseWeight = 1 / 7
+                        daysInfo = 'No due date (default: 7 days)'
+                      }
+                      
+                      const priorityMultiplier = todo.priority === 'high' ? 2 : 1
+                      const weightAfterPriority = baseWeight * priorityMultiplier
+                      const finalWeight = useHalfWeight ? weightAfterPriority / 2 : weightAfterPriority
+                      const percentage = totalWeight > 0 
+                        ? ((finalWeight / (useHalfWeight ? totalWeight / 2 : totalWeight)) * 100)
+                        : 0
+                      
+                      return (
+                        <div 
+                          key={todo.id} 
+                          className="p-2 rounded border-l-2"
+                          style={{
+                            backgroundColor: 'var(--card)',
+                            borderColor: todo.priority === 'high' ? '#ef4444' : '#22c55e'
+                          }}
                         >
-                          {todo.title}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono" style={{color: 'var(--muted-foreground)'}}>
-                            {useHalfWeight 
-                              ? ((taskWeights[todo.id] || 0) / 2).toFixed(4)
-                              : (taskWeights[todo.id] || 0).toFixed(4)
-                            }
-                          </span>
-                          <span 
-                            className="text-xs px-1 rounded"
-                            style={{backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)'}}
-                          >
-                            {totalWeight > 0 
-                              ? useHalfWeight 
-                                ? (((taskWeights[todo.id] / 2) / (totalWeight / 2)) * 100).toFixed(1) + '%'
-                                : ((taskWeights[todo.id] / totalWeight) * 100).toFixed(1) + '%'
-                              : '0%'
-                            }
-                          </span>
-                          {useHalfWeight && (
+                          <div className="flex justify-between items-start mb-1">
                             <span 
-                              className="text-xs px-1 rounded bg-orange-500 text-white font-bold"
-                              title="Half weight applied"
+                              className="font-medium truncate max-w-xs"
+                              style={{color: 'var(--card-foreground)'}}
+                              title={todo.title}
                             >
-                              ½
+                              {todo.title}
                             </span>
-                          )}
+                            <span 
+                              className="text-xs px-2 py-0.5 rounded font-bold ml-2"
+                              style={{backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)'}}
+                            >
+                              {percentage.toFixed(2)}%
+                            </span>
+                          </div>
+                          
+                          <div className="space-y-0.5 text-xs" style={{color: 'var(--muted-foreground)'}}>
+                            <div className="grid grid-cols-2 gap-x-4">
+                              <span>📅 {daysInfo}</span>
+                              <span className="font-mono">Base: {baseWeight.toFixed(4)}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-4">
+                              <span>🎯 Priority: {todo.priority === 'high' ? 'High (×2)' : 'Low (×1)'}</span>
+                              <span className="font-mono">After priority: {weightAfterPriority.toFixed(4)}</span>
+                            </div>
+                            {useHalfWeight && (
+                              <div className="grid grid-cols-2 gap-x-4">
+                                <span>⚖️ Half weight applied (÷2)</span>
+                                <span className="font-mono">Final: {finalWeight.toFixed(4)}</span>
+                              </div>
+                            )}
+                            {!useHalfWeight && (
+                              <div className="grid grid-cols-2 gap-x-4">
+                                <span></span>
+                                <span className="font-mono font-bold">Final: {finalWeight.toFixed(4)}</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
+                      )
+                    })}
+                  </div>
+                  
+                  {/* Summary Stats */}
+                  <div className="mt-3 pt-3 border-t" style={{borderColor: 'var(--border)'}}>
+                    <div className="text-xs space-y-1" style={{color: 'var(--muted-foreground)'}}>
+                      <div className="flex justify-between font-bold">
+                        <span>Total Weight (all tasks):</span>
+                        <span className="font-mono">{(useHalfWeight ? totalWeight / 2 : totalWeight).toFixed(4)}</span>
                       </div>
-                    ))}
+                      <div className="flex justify-between">
+                        <span>Active Tasks:</span>
+                        <span className="font-mono">{todos.filter(t => !t.completed).length}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Sum of all percentages:</span>
+                        <span className="font-mono">
+                          {todos.filter(t => !t.completed).reduce((sum, todo) => {
+                            const finalWeight = useHalfWeight ? (taskWeights[todo.id] || 0) / 2 : (taskWeights[todo.id] || 0)
+                            const percentage = totalWeight > 0 
+                              ? ((finalWeight / (useHalfWeight ? totalWeight / 2 : totalWeight)) * 100)
+                              : 0
+                            return sum + percentage
+                          }, 0).toFixed(2)}%
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Visual Algorithm Debug Panel */}
+            {advancedRecommendations && Object.keys(taskWeights).length > 0 && (
+              <div className="mt-4">
+                <h3 className="font-medium mb-3 flex items-center gap-2" style={{color: 'var(--card-foreground)'}}>
+                  <span>📊 Visual Algorithm Breakdown</span>
+                  {lastRecommendationMetadata && (
+                    <span className="text-xs px-2 py-1 rounded bg-green-500 text-white">
+                      Last Generated: {new Date(lastRecommendationMetadata.generatedAt).toLocaleTimeString()}
+                    </span>
+                  )}
+                </h3>
+                
+                {/* Visual Weight Distribution Bar */}
+                <div 
+                  className="p-4 rounded-md mb-4"
+                  style={{backgroundColor: 'var(--card)', border: '2px solid var(--border)'}}
+                >
+                  <h4 className="text-sm font-semibold mb-3" style={{color: 'var(--card-foreground)'}}>
+                    Weight Distribution (Cumulative)
+                  </h4>
+                  
+                  {/* Calculation Summary */}
+                  <div className="grid grid-cols-3 gap-3 mb-4 text-xs">
+                    <div className="p-2 rounded" style={{backgroundColor: 'var(--muted)'}}>
+                      <div style={{color: 'var(--muted-foreground)'}} className="mb-1">Total Weight Sum</div>
+                      <div className="font-mono font-bold text-lg" style={{color: 'var(--foreground)'}}>
+                        {(useHalfWeight ? totalWeight / 2 : totalWeight).toFixed(4)}
+                      </div>
+                    </div>
+                    {lastRecommendationMetadata && (
+                      <>
+                        <div className="p-2 rounded" style={{backgroundColor: 'rgba(34, 197, 94, 0.1)', border: '1px solid #22c55e'}}>
+                          <div className="text-green-700 mb-1">Random Value Generated</div>
+                          <div className="font-mono font-bold text-lg text-green-700">
+                            {lastRecommendationMetadata.randomValue.toFixed(4)}
+                          </div>
+                        </div>
+                        <div className="p-2 rounded" style={{backgroundColor: 'rgba(59, 130, 246, 0.1)', border: '1px solid #3b82f6'}}>
+                          <div className="text-blue-700 mb-1">Selected Task</div>
+                          <div className="font-bold text-sm text-blue-700 truncate">
+                            {recommendedTask?.title || 'None'}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  
+                  {/* Visual Bar showing cumulative weights */}
+                  <div className="space-y-2">
+                    {(() => {
+                      const activeTodos = todos.filter(t => !t.completed)
+                      const effectiveTotal = useHalfWeight ? totalWeight / 2 : totalWeight
+                      let cumulativeWeight = 0
+                      
+                      return activeTodos.map((todo, index) => {
+                        const todoWeight = useHalfWeight ? (taskWeights[todo.id] || 0) / 2 : (taskWeights[todo.id] || 0)
+                        const startWeight = cumulativeWeight
+                        cumulativeWeight += todoWeight
+                        const endWeight = cumulativeWeight
+                        const percentage = effectiveTotal > 0 ? (todoWeight / effectiveTotal) * 100 : 0
+                        
+                        const isSelected = recommendedTask?.id === todo.id
+                        const wasHitByRandom = lastRecommendationMetadata && 
+                          lastRecommendationMetadata.randomValue >= startWeight && 
+                          lastRecommendationMetadata.randomValue < endWeight
+                        
+                        return (
+                          <div key={todo.id} className="space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                <span 
+                                  className="truncate font-medium"
+                                  style={{color: 'var(--card-foreground)'}}
+                                  title={todo.title}
+                                >
+                                  {todo.title}
+                                </span>
+                                {wasHitByRandom && (
+                                  <span className="px-2 py-0.5 rounded text-xs bg-blue-500 text-white font-bold whitespace-nowrap">
+                                    ✓ SELECTED
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-xs" style={{color: 'var(--muted-foreground)'}}>
+                                <span className="font-mono">{startWeight.toFixed(4)} → {endWeight.toFixed(4)}</span>
+                                <span className="font-bold">{percentage.toFixed(1)}%</span>
+                              </div>
+                            </div>
+                            
+                            {/* Visual bar */}
+                            <div className="relative h-8 rounded overflow-hidden" style={{backgroundColor: 'var(--muted)'}}>
+                              <div 
+                                className="absolute h-full transition-all"
+                                style={{
+                                  left: `${effectiveTotal > 0 ? (startWeight / effectiveTotal) * 100 : 0}%`,
+                                  width: `${percentage}%`,
+                                  backgroundColor: wasHitByRandom 
+                                    ? '#3b82f6' 
+                                    : todo.priority === 'high' 
+                                      ? 'rgba(239, 68, 68, 0.6)' 
+                                      : 'rgba(34, 197, 94, 0.6)',
+                                  border: wasHitByRandom ? '2px solid #1d4ed8' : 'none'
+                                }}
+                              >
+                                <div className="h-full flex items-center justify-center text-xs font-bold text-white">
+                                  {percentage > 5 && `${percentage.toFixed(0)}%`}
+                                </div>
+                              </div>
+                              
+                              {/* Random value indicator */}
+                              {lastRecommendationMetadata && (
+                                <div 
+                                  className="absolute top-0 bottom-0 w-1 bg-green-500 shadow-lg"
+                                  style={{
+                                    left: `${effectiveTotal > 0 ? (lastRecommendationMetadata.randomValue / effectiveTotal) * 100 : 0}%`,
+                                    boxShadow: '0 0 10px rgba(34, 197, 94, 0.8)'
+                                  }}
+                                  title={`Random: ${lastRecommendationMetadata.randomValue.toFixed(4)}`}
+                                >
+                                  <div className="absolute -top-6 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-2 py-0.5 rounded text-xs whitespace-nowrap font-bold">
+                                    ↓ Random
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })
+                    })()}
+                  </div>
+                  
+                  {!lastRecommendationMetadata && (
+                    <div className="mt-4 p-3 rounded text-center text-sm" style={{backgroundColor: 'rgba(234, 179, 8, 0.1)', color: 'var(--muted-foreground)'}}>
+                      💡 Click "Suggest Task" to see the random selection process visualized above
+                    </div>
+                  )}
+                </div>
+                
+                {/* Detailed Calculation Table */}
+                <div 
+                  className="p-4 rounded-md"
+                  style={{backgroundColor: 'var(--card)', border: '2px solid var(--border)'}}
+                >
+                  <h4 className="text-sm font-semibold mb-3" style={{color: 'var(--card-foreground)'}}>
+                    Detailed Weight Calculations
+                  </h4>
+                  
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b" style={{borderColor: 'var(--border)'}}>
+                          <th className="text-left p-2" style={{color: 'var(--foreground)'}}>Task</th>
+                          <th className="text-left p-2" style={{color: 'var(--foreground)'}}>Due Date Info</th>
+                          <th className="text-right p-2" style={{color: 'var(--foreground)'}}>Base Weight</th>
+                          <th className="text-center p-2" style={{color: 'var(--foreground)'}}>Priority</th>
+                          <th className="text-right p-2" style={{color: 'var(--foreground)'}}>Final Weight</th>
+                          <th className="text-right p-2" style={{color: 'var(--foreground)'}}>Probability</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {todos.filter(t => !t.completed).map(todo => {
+                          let baseWeight: number
+                          let dueDateInfo: string = ''
+                          
+                          if (todo.constantDueDays !== undefined && todo.constantDueDays !== null) {
+                            const days = todo.constantDueDays
+                            const doubleDays = days > 0 ? days : 1 / (-days + 2)
+                            baseWeight = 1 / doubleDays
+                            dueDateInfo = `Always ${days}d`
+                          } else if (todo.dueDate) {
+                            const today = new Date()
+                            today.setHours(0, 0, 0, 0)
+                            const dueDate = new Date(todo.dueDate)
+                            dueDate.setHours(0, 0, 0, 0)
+                            const daysDiff = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+                            const doubleDays = daysDiff > 0 ? daysDiff : 1 / (-daysDiff + 2)
+                            baseWeight = 1 / doubleDays
+                            dueDateInfo = daysDiff > 0 ? `In ${daysDiff}d` : daysDiff === 0 ? 'Today' : `${Math.abs(daysDiff)}d overdue`
+                          } else {
+                            baseWeight = 1 / 7
+                            dueDateInfo = 'Default (7d)'
+                          }
+                          
+                          const priorityMult = todo.priority === 'high' ? 2 : 1
+                          const afterPriority = baseWeight * priorityMult
+                          const finalWeight = useHalfWeight ? afterPriority / 2 : afterPriority
+                          const effectiveTotal = useHalfWeight ? totalWeight / 2 : totalWeight
+                          const probability = effectiveTotal > 0 ? (finalWeight / effectiveTotal) * 100 : 0
+                          
+                          const isSelected = recommendedTask?.id === todo.id
+                          
+                          return (
+                            <tr 
+                              key={todo.id} 
+                              className="border-b hover:bg-opacity-50"
+                              style={{
+                                borderColor: 'var(--border)',
+                                backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.1)' : 'transparent'
+                              }}
+                            >
+                              <td className="p-2">
+                                <div className="flex items-center gap-1">
+                                  {isSelected && <span className="text-blue-500">→</span>}
+                                  <span className="truncate max-w-[200px]" style={{color: 'var(--foreground)'}}>
+                                    {todo.title}
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="p-2" style={{color: 'var(--muted-foreground)'}}>
+                                {dueDateInfo}
+                              </td>
+                              <td className="p-2 text-right font-mono" style={{color: 'var(--muted-foreground)'}}>
+                                {baseWeight.toFixed(4)}
+                              </td>
+                              <td className="p-2 text-center">
+                                <span 
+                                  className="px-2 py-0.5 rounded text-xs font-bold"
+                                  style={{
+                                    backgroundColor: todo.priority === 'high' ? '#fee2e2' : '#dcfce7',
+                                    color: todo.priority === 'high' ? '#991b1b' : '#166534'
+                                  }}
+                                >
+                                  {todo.priority === 'high' ? '×2' : '×1'}
+                                </span>
+                              </td>
+                              <td className="p-2 text-right font-mono font-bold" style={{color: 'var(--foreground)'}}>
+                                {finalWeight.toFixed(4)}
+                              </td>
+                              <td className="p-2 text-right">
+                                <span 
+                                  className="px-2 py-1 rounded font-bold"
+                                  style={{
+                                    backgroundColor: isSelected ? '#3b82f6' : 'var(--accent)',
+                                    color: isSelected ? 'white' : 'var(--accent-foreground)'
+                                  }}
+                                >
+                                  {probability.toFixed(2)}%
+                                </span>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 font-bold" style={{borderColor: 'var(--border)'}}>
+                          <td colSpan={4} className="p-2 text-right" style={{color: 'var(--foreground)'}}>
+                            Total:
+                          </td>
+                          <td className="p-2 text-right font-mono" style={{color: 'var(--foreground)'}}>
+                            {(useHalfWeight ? totalWeight / 2 : totalWeight).toFixed(4)}
+                          </td>
+                          <td className="p-2 text-right font-mono" style={{color: 'var(--foreground)'}}>
+                            100.00%
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
                 </div>
               </div>
@@ -1576,6 +2024,34 @@ export default function Home() {
               )}
             </div>
             <div className="flex gap-2 items-center">
+              <GitBranch size={20} style={{color: 'var(--muted-foreground)'}} />
+              <span className="text-sm" style={{color: 'var(--muted-foreground)'}}>Constant Due:</span>
+              <input
+                type="number"
+                value={newConstantDueDays}
+                onChange={(e) => setNewConstantDueDays(e.target.value)}
+                placeholder="Days"
+                min="0"
+                max="365"
+                className="w-20 px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                style={{
+                  backgroundColor: 'var(--input)',
+                  color: 'var(--foreground)',
+                  border: '1px solid var(--border)'
+                }}
+                title="Always due in N days (overrides due date)"
+              />
+              {newConstantDueDays && (
+                <button
+                  onClick={() => setNewConstantDueDays('')}
+                  className="hover:opacity-70 text-sm"
+                  style={{color: 'var(--muted-foreground)'}}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2 items-center">
               <Flag size={20} style={{color: 'var(--muted-foreground)'}} />
               <div className="flex rounded-lg p-1" style={{backgroundColor: 'var(--muted)'}}>
                 <button
@@ -1613,7 +2089,7 @@ export default function Home() {
         <div className="rounded-lg shadow-md p-1 flex justify-center" style={{backgroundColor: 'var(--card)'}}>
           <button
             onClick={() => setCurrentView('list')}
-            className={`flex items-center gap-2 px-6 py-3 rounded-md transition-colors ${
+            className={`flex items-center gap-2 px-6 py-3 rounded-md transition-colors cursor-pointer ${
               currentView === 'list' ? '' : 'hover:bg-opacity-70'
             }`}
             style={currentView === 'list' ? {backgroundColor: 'var(--muted)', color: 'var(--foreground)'} : {color: 'var(--muted-foreground)'}}
@@ -1623,7 +2099,7 @@ export default function Home() {
           </button>
           <button
             onClick={() => setCurrentView('calendar')}
-            className={`flex items-center gap-2 px-6 py-3 rounded-md transition-colors ${
+            className={`flex items-center gap-2 px-6 py-3 rounded-md transition-colors cursor-pointer ${
               currentView === 'calendar' ? '' : 'hover:bg-opacity-70'
             }`}
             style={currentView === 'calendar' ? {backgroundColor: 'var(--muted)', color: 'var(--foreground)'} : {color: 'var(--muted-foreground)'}}
@@ -1633,7 +2109,7 @@ export default function Home() {
           </button>
           <button
             onClick={() => setCurrentView('analytics')}
-            className={`flex items-center gap-2 px-6 py-3 rounded-md transition-colors ${
+            className={`flex items-center gap-2 px-6 py-3 rounded-md transition-colors cursor-pointer ${
               currentView === 'analytics' ? '' : 'hover:bg-opacity-70'
             }`}
             style={currentView === 'analytics' ? {backgroundColor: 'var(--muted)', color: 'var(--foreground)'} : {color: 'var(--muted-foreground)'}}
@@ -1658,7 +2134,7 @@ export default function Home() {
               <button
                 onClick={generateRandomRecommendation}
                 disabled={isGeneratingRecommendation || todos.filter(t => !t.completed).length === 0}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 cursor-pointer"
               >
                 {isGeneratingRecommendation ? (
                   <>
@@ -1698,7 +2174,7 @@ export default function Home() {
                       </h3>
                       <button
                         onClick={() => copyToClipboard(recommendedTask.title, 'Task name copied to clipboard')}
-                        className="p-2 rounded-md transition-colors hover:bg-blue-100 hover:text-blue-600"
+                        className="p-2 rounded-md transition-colors hover:bg-blue-100 hover:text-blue-600 cursor-pointer"
                         style={{ color: 'var(--muted-foreground)' }}
                         title="Copy task name"
                       >
@@ -1724,13 +2200,13 @@ export default function Home() {
                   <div className="flex items-center gap-2 ml-4">
                     <button
                       onClick={() => toggleTodo(recommendedTask.id)}
-                      className="px-3 py-1 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-sm"
+                      className="px-3 py-1 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-sm cursor-pointer"
                     >
                       Mark Done
                     </button>
                     <button
                       onClick={dismissRecommendationLocal}
-                      className="p-1 rounded-md transition-colors"
+                      className="p-1 rounded-md transition-colors cursor-pointer hover:bg-red-50"
                       style={{color: 'var(--muted-foreground)'}}
                       title="Dismiss recommendation"
                     >
@@ -1755,73 +2231,104 @@ export default function Home() {
 
       {/* Filter Tabs and Sort Options */}
       {currentView === 'list' && (
-      <div className="flex flex-col lg:flex-row justify-between items-center mb-6 gap-4">
-        <div className="rounded-lg shadow-md p-1 flex" style={{backgroundColor: 'var(--card)'}}>
-          {(['all', 'active', 'completed', 'overdue'] as const).map((filterType) => (
-            <button
-              key={filterType}
-              onClick={() => setFilter(filterType)}
-              className={`px-4 py-2 rounded-md capitalize transition-colors ${
-                filter === filterType
-                  ? 'bg-blue-500 text-white'
-                  : 'hover:bg-opacity-70'
-              }`}
-              style={filter !== filterType ? {color: 'var(--muted-foreground)'} : {}}
-            >
-              {filterType}
-              {filterType === 'overdue' && todos.filter(isOverdue).length > 0 && (
-                <span className="ml-1 text-xs bg-red-500 text-white rounded-full px-1">
-                  {todos.filter(isOverdue).length}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-        
-        <div className="flex gap-3">
-          <div className="rounded-lg shadow-md p-1 flex" style={{backgroundColor: 'var(--card)'}}>
-            <button
-              onClick={() => setSortBy('created')}
-              className={`px-3 py-2 rounded-md text-sm transition-colors ${
-                sortBy === 'created'
-                  ? ''
-                  : 'hover:bg-opacity-70'
-              }`}
-              style={sortBy === 'created' ? {backgroundColor: 'var(--muted)', color: 'var(--foreground)'} : {color: 'var(--muted-foreground)'}}
-            >
-              Sort by Created
-            </button>
-            <button
-              onClick={() => setSortBy('dueDate')}
-              className={`px-3 py-2 rounded-md text-sm transition-colors ${
-                sortBy === 'dueDate'
-                  ? ''
-                  : 'hover:bg-opacity-70'
-              }`}
-              style={sortBy === 'dueDate' ? {backgroundColor: 'var(--muted)', color: 'var(--foreground)'} : {color: 'var(--muted-foreground)'}}
-            >
-              Sort by Due Date
-            </button>
+      <div className="rounded-lg shadow-md p-3 mb-6" style={{backgroundColor: 'var(--card)'}}>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+          {/* Filter Tabs */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-medium uppercase tracking-wide" style={{color: 'var(--muted-foreground)'}}>
+              Filter:
+            </span>
+            <div className="flex rounded-md" style={{backgroundColor: 'var(--muted)'}}>
+              {([
+                { value: 'all', icon: List, label: 'All' },
+                { value: 'active', icon: Circle, label: 'Active' },
+                { value: 'completed', icon: CheckCircle2, label: 'Done' },
+                { value: 'overdue', icon: AlertTriangle, label: 'Overdue' }
+              ] as const).map(({ value, icon: Icon, label }) => (
+                <button
+                  key={value}
+                  onClick={() => setFilter(value)}
+                  className={`px-3 py-1.5 text-sm rounded-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                    filter === value
+                      ? 'bg-blue-500 text-white shadow-sm'
+                      : 'hover:bg-opacity-50'
+                  }`}
+                  style={filter !== value ? {color: 'var(--muted-foreground)'} : {}}
+                  title={label}
+                >
+                  <Icon size={14} />
+                  <span className="hidden xs:inline">{label}</span>
+                  {value === 'overdue' && todos.filter(isOverdue).length > 0 && (
+                    <span className="ml-0.5 text-xs bg-red-500 text-white rounded-full px-1.5 py-0.5 font-bold">
+                      {todos.filter(isOverdue).length}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
-          
-          <div className="rounded-lg shadow-md p-1" style={{backgroundColor: 'var(--card)'}}>
+
+          {/* Sort and Toggle Options */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-medium uppercase tracking-wide" style={{color: 'var(--muted-foreground)'}}>
+              Options:
+            </span>
+            
+            {/* Sort by dropdown-style toggle */}
+            <div className="flex rounded-md" style={{backgroundColor: 'var(--muted)'}}>
+              <button
+                onClick={() => setSortBy('created')}
+                className={`px-2.5 py-1.5 text-xs rounded-l-md transition-all flex items-center gap-1 cursor-pointer ${
+                  sortBy === 'created'
+                    ? 'bg-blue-500 text-white'
+                    : 'hover:bg-opacity-50'
+                }`}
+                style={sortBy !== 'created' ? {color: 'var(--muted-foreground)'} : {}}
+                title="Sort by creation date"
+              >
+                <Clock size={12} />
+                <span className="hidden sm:inline">Created</span>
+              </button>
+              <button
+                onClick={() => setSortBy('dueDate')}
+                className={`px-2.5 py-1.5 text-xs rounded-r-md transition-all flex items-center gap-1 cursor-pointer ${
+                  sortBy === 'dueDate'
+                    ? 'bg-blue-500 text-white'
+                    : 'hover:bg-opacity-50'
+                }`}
+                style={sortBy !== 'dueDate' ? {color: 'var(--muted-foreground)'} : {}}
+                title="Sort by due date"
+              >
+                <Calendar size={12} />
+                <span className="hidden sm:inline">Due</span>
+              </button>
+            </div>
+
+            {/* Icon-only toggles */}
             <button
               onClick={() => setPriorityFirst(!priorityFirst)}
-              className={`px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-2 ${
+              className={`p-2 rounded-md text-xs transition-all cursor-pointer ${
                 priorityFirst
-                  ? 'bg-orange-100 text-orange-700 border border-orange-200'
-                  : 'hover:bg-opacity-70'
+                  ? 'bg-orange-500 text-white shadow-sm'
+                  : 'hover:bg-opacity-50'
               }`}
-              style={!priorityFirst ? {color: 'var(--muted-foreground)'} : {}}
-              title={priorityFirst ? 'Priority sorting enabled' : 'Priority sorting disabled'}
+              style={!priorityFirst ? {backgroundColor: 'var(--muted)', color: 'var(--muted-foreground)'} : {}}
+              title={priorityFirst ? 'Priority sorting ON' : 'Priority sorting OFF'}
             >
-              <SortAsc size={16} />
-              <span className="hidden sm:inline">
-                {priorityFirst ? 'Priority First' : 'No Priority Sort'}
-              </span>
-              <span className="sm:hidden">
-                {priorityFirst ? 'Priority' : 'Standard'}
-              </span>
+              <Flag size={14} />
+            </button>
+
+            <button
+              onClick={() => setHideScheduledTasks(!hideScheduledTasks)}
+              className={`p-2 rounded-md text-xs transition-all cursor-pointer ${
+                hideScheduledTasks
+                  ? 'bg-blue-500 text-white shadow-sm'
+                  : 'hover:bg-opacity-50'
+              }`}
+              style={!hideScheduledTasks ? {backgroundColor: 'var(--muted)', color: 'var(--muted-foreground)'} : {}}
+              title={hideScheduledTasks ? 'Future tasks hidden' : 'Showing all tasks'}
+            >
+              <CalendarDays size={14} />
             </button>
           </div>
         </div>
@@ -1879,7 +2386,7 @@ export default function Home() {
                 <div className="flex items-start gap-4">
                   <button
                     onClick={() => toggleTodo(todo.id)}
-                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 mt-1 ${
+                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 mt-1 cursor-pointer ${
                       todo.completed
                         ? 'bg-green-500 border-green-500 text-white'
                         : 'hover:border-green-500'
@@ -1915,14 +2422,14 @@ export default function Home() {
                           />
                           <button
                             onClick={() => saveEditedTitle(todo.id)}
-                            className="p-1 text-green-600 rounded transition-colors flex-shrink-0 hover:bg-green-50"
+                            className="p-1 text-green-600 rounded transition-colors flex-shrink-0 hover:bg-green-50 cursor-pointer"
                             title="Save title (Enter)"
                           >
                             <Save size={16} />
                           </button>
                           <button
                             onClick={cancelEditingTitle}
-                            className="p-1 rounded transition-colors flex-shrink-0"
+                            className="p-1 rounded transition-colors flex-shrink-0 hover:bg-red-50 cursor-pointer"
                             style={{color: 'var(--muted-foreground)'}}
                             title="Cancel (Esc)"
                           >
@@ -1946,7 +2453,7 @@ export default function Home() {
                       <button
                         onClick={() => togglePriority(todo.id, todo.priority)}
                         
-                        className={`px-2 py-1 rounded-full text-xs font-medium transition-colors flex items-center gap-1 ${
+                        className={`px-2 py-1 rounded-full text-xs font-medium transition-all cursor-pointer flex items-center gap-1 hover:scale-105 hover:shadow-md ${
                           todo.priority === 'high'
                             ? 'bg-red-100 text-red-700 border border-red-200'
                             : 'bg-green-100 text-green-700 border border-green-200'
@@ -2019,14 +2526,14 @@ export default function Home() {
                             />
                             <button
                               onClick={() => saveEditedScheduledDate(todo.id)}
-                              className="p-1 text-green-600 rounded transition-colors hover:bg-green-50"
+                              className="p-1 text-green-600 rounded transition-colors hover:bg-green-50 cursor-pointer"
                               title="Save scheduled date"
                             >
                               <Save size={12} />
                             </button>
                             <button
                               onClick={cancelEditingScheduledDate}
-                              className="p-1 rounded transition-colors"
+                              className="p-1 rounded transition-colors hover:bg-red-50 cursor-pointer"
                               style={{color: 'var(--muted-foreground)'}}
                               title="Cancel"
                             >
@@ -2036,7 +2543,7 @@ export default function Home() {
                         ) : (
                           <button
                             onClick={() => startEditingScheduledDate(todo.id, scheduledDateValue)}
-                            className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-colors border ${
+                            className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-all cursor-pointer border hover:scale-105 hover:shadow-md ${
                               isScheduledUpcoming
                                 ? 'border-dashed border-blue-300 text-blue-600 bg-blue-50 hover:bg-blue-100'
                                 : 'border-green-200 text-green-600 bg-green-50 hover:bg-green-100'
@@ -2051,6 +2558,58 @@ export default function Home() {
                             <Edit3 size={10} className="ml-1 opacity-60" />
                           </button>
                         )
+                      )}
+                      
+                      {/* Constant Due Days Display */}
+                      {(todo.constantDueDays !== undefined && todo.constantDueDays !== null) && (
+                        <div className="flex items-center gap-1">
+                          {editingConstantDue === todo.id ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                value={editConstantDueValue}
+                                onChange={(e) => setEditConstantDueValue(e.target.value)}
+                                placeholder="Days"
+                                min="0"
+                                max="365"
+                                className="w-20 px-2 py-1 text-xs rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                style={{
+                                  backgroundColor: 'var(--input)',
+                                  color: 'var(--foreground)',
+                                  border: '1px solid var(--border)'
+                                }}
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => saveEditedConstantDue(todo.id)}
+                                className="p-1 text-green-600 rounded transition-colors hover:bg-green-50 cursor-pointer"
+                                title="Save constant due"
+                              >
+                                <Save size={12} />
+                              </button>
+                              <button
+                                onClick={cancelEditingConstantDue}
+                                className="p-1 rounded transition-colors hover:bg-red-50 cursor-pointer"
+                                style={{color: 'var(--muted-foreground)'}}
+                                title="Cancel"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => startEditingConstantDue(todo.id, todo.constantDueDays)}
+                              className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium cursor-pointer transition-all border hover:scale-105 hover:shadow-md ${
+                                dueDateStatus ? statusColors[dueDateStatus] : 'border-purple-200 text-purple-600 bg-purple-50 hover:bg-purple-100'
+                              }`}
+                              title="Click to edit constant due days"
+                            >
+                              <GitBranch size={12} />
+                              <span>Always due in {todo.constantDueDays} {todo.constantDueDays === 1 ? 'day' : 'days'}</span>
+                              <Edit3 size={10} className="ml-1 opacity-60" />
+                            </button>
+                          )}
+                        </div>
                       )}
                       
                       {todo.dueDate && (
@@ -2090,10 +2649,10 @@ export default function Home() {
                             </div>
                           ) : (
                             <div 
-                              className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium cursor-pointer transition-colors hover:bg-opacity-80 ${
-                                dueDateStatus ? statusColors[dueDateStatus] : 'bg-opacity-10'
+                              className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium cursor-pointer transition-all border hover:scale-105 hover:shadow-md ${
+                                dueDateStatus ? statusColors[dueDateStatus] : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
                               }`}
-                              style={!dueDateStatus ? {color: 'var(--muted-foreground)', backgroundColor: 'var(--muted)'} : {}}
+                              style={!dueDateStatus ? {color: 'var(--muted-foreground)'} : {}}
                               onClick={() => startEditingDate(todo.id, todo.dueDate)}
                               title="Click to edit due date"
                             >
@@ -2136,7 +2695,8 @@ export default function Home() {
                       </button>
                     )}
 
-                    {!todo.dueDate && editingDate !== todo.id && (
+                    {/* Due Date - Only show if no constantDueDays */}
+                    {!todo.dueDate && !todo.constantDueDays && editingDate !== todo.id && (
                       <button
                         onClick={() => startEditingDate(todo.id)}
                         className="p-2 rounded-lg transition-colors"
@@ -2182,11 +2742,67 @@ export default function Home() {
                       </div>
                     )}
                     
+                    {/* Constant Due Days - Only show if no dueDate */}
+                    {!todo.constantDueDays && !todo.dueDate && editingConstantDue !== todo.id && (
+                      <button
+                        onClick={() => startEditingConstantDue(todo.id)}
+                        className="p-2 rounded-lg transition-colors text-purple-500 hover:bg-purple-50"
+                        title="Add constant due (always due in N days)"
+                      >
+                        <GitBranch size={16} />
+                      </button>
+                    )}
+
+                    {!todo.constantDueDays && editingConstantDue === todo.id && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          value={editConstantDueValue}
+                          onChange={(e) => setEditConstantDueValue(e.target.value)}
+                          placeholder="Days"
+                          min="0"
+                          max="365"
+                          className="w-20 px-2 py-1 text-xs rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
+                          style={{
+                            backgroundColor: 'var(--input)',
+                            color: 'var(--foreground)',
+                            border: '1px solid var(--border)'
+                          }}
+                          autoFocus
+                        />
+                        <button
+                          onClick={() => saveEditedConstantDue(todo.id)}
+                          className="p-1 text-green-600 rounded transition-colors hover:bg-green-50"
+                          title="Save constant due"
+                        >
+                          <Save size={14} />
+                        </button>
+                        <button
+                          onClick={cancelEditingConstantDue}
+                          className="p-1 rounded transition-colors"
+                          style={{color: 'var(--muted-foreground)'}}
+                          title="Cancel"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )}
+
+                    {(todo.constantDueDays !== undefined && todo.constantDueDays !== null) && editingConstantDue !== todo.id && (
+                      <button
+                        onClick={() => updateTodoConstantDueDays(todo.id, undefined)}
+                        className="p-2 text-purple-500 rounded-lg transition-colors hover:bg-purple-50"
+                        title="Remove constant due"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                    
                     {todo.dueDate && editingDate !== todo.id && (
                       <button
                         onClick={() => updateTodoDueDate(todo.id, undefined)}
                         
-                        className={`p-2 text-red-500 rounded-lg transition-colors hover:bg-red-50`}
+                        className={`p-2 text-red-500 rounded-lg transition-all hover:bg-red-50 cursor-pointer hover:scale-110 hover:shadow-md`}
                         title="Remove due date"
                       >
                         <X size={16} />
@@ -2196,7 +2812,7 @@ export default function Home() {
                     <button
                       onClick={() => deleteTodo(todo.id)}
                       
-                      className={`p-2 text-red-500 rounded-lg transition-colors hover:bg-red-50`}
+                      className={`p-2 text-red-500 rounded-lg transition-all hover:bg-red-50 cursor-pointer hover:scale-110 hover:shadow-md`}
                     >
                       <Trash2 size={18} />
                     </button>

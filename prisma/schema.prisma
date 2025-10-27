@@ -70,6 +70,7 @@ model Todo {
   priority      String   @default("low") // 'low', 'high'
   dueDate       DateTime?
   scheduledDate DateTime? // Date when task becomes visible/active
+  constantDueDays Int?    // If set, task is always due in N days (overrides dueDate)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   userId        String
@@ -93,6 +94,7 @@ model UserSettings {
   priorityFirst             Boolean @default(true)
   advancedRecommendations   Boolean @default(false)
   statsForNerds            Boolean @default(false)
+  hideScheduledTasks       Boolean @default(false) // Hide tasks scheduled for the future
 
   // YanAlgorithm Settings
   numCategories            Int     @default(3) // 2-10

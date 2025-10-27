@@ -13,6 +13,7 @@ export interface UserSettings {
   priorityFirst: boolean
   advancedRecommendations: boolean
   statsForNerds: boolean
+  hideScheduledTasks: boolean
 
   // YanAlgorithm Settings
   numCategories: number
@@ -132,7 +133,12 @@ export function useSettings() {
       let totalWeight = 0
       for (const todo of activeTodos) {
         let weight: number
-        if (todo.dueDate) {
+        // Handle constant due days first (overrides regular due date)
+        if (todo.constantDueDays !== undefined && todo.constantDueDays !== null) {
+          const daysDifference = todo.constantDueDays
+          const doubleDays = daysDifference > 0 ? daysDifference : 1 / (-daysDifference + 2)
+          weight = 1 / doubleDays
+        } else if (todo.dueDate) {
           const today = new Date(); today.setHours(0, 0, 0, 0)
           const dueDate = new Date(todo.dueDate); dueDate.setHours(0, 0, 0, 0)
           const daysDiff = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
@@ -148,9 +154,10 @@ export function useSettings() {
       }
 
       let selected = activeTodos[0]
+      let randomValue = 0
       if (totalWeight > 0) {
         const effectiveWeight = useHalfWeight ? totalWeight / 2 : totalWeight
-        const randomValue = Math.random() * effectiveWeight
+        randomValue = Math.random() * effectiveWeight
         let cumulative = 0
         for (const todo of activeTodos) {
           const taskWeight = useHalfWeight ? weights[todo.id] / 2 : weights[todo.id]
@@ -163,6 +170,7 @@ export function useSettings() {
       }
 
       const generationTime = new Date()
+      const effectiveWeight = useHalfWeight ? totalWeight / 2 : totalWeight
 
       // Optimistically update settings cache
       const currentSettings = settings
@@ -184,7 +192,14 @@ export function useSettings() {
 
       // Revalidate to sync with server state
       mutate('/api/user/settings')
-      return { recommendation: selected, method: 'client_weighted' }
+      return { 
+        recommendation: selected, 
+        method: 'client_weighted',
+        totalWeight,
+        effectiveWeight,
+        randomValue,
+        generatedAt: generationTime.toISOString()
+      }
     } catch (error) {
       throw error
     }

@@ -39,14 +39,32 @@ export async function PATCH(
       )
     }
 
+    // Enforce mutual exclusivity: dueDate and constantDueDays cannot both be set
+    let finalDueDate = updates.dueDate !== undefined
+      ? (updates.dueDate ? new Date(updates.dueDate) : null)
+      : existingTodo.dueDate
+    
+    let finalConstantDueDays = updates.constantDueDays !== undefined
+      ? updates.constantDueDays
+      : existingTodo.constantDueDays
+
+    // If setting constantDueDays, clear dueDate
+    if (updates.constantDueDays !== undefined && updates.constantDueDays !== null) {
+      finalDueDate = null
+    }
+    
+    // If setting dueDate, clear constantDueDays
+    if (updates.dueDate !== undefined && updates.dueDate !== null) {
+      finalConstantDueDays = null
+    }
+
     // Update todo
     const todo = await prisma.todo.update({
       where: { id },
       data: {
         ...updates,
-        dueDate: updates.dueDate !== undefined
-          ? (updates.dueDate ? new Date(updates.dueDate) : null)
-          : existingTodo.dueDate,
+        dueDate: finalDueDate,
+        constantDueDays: finalConstantDueDays,
         scheduledDate: updates.scheduledDate !== undefined 
           ? (updates.scheduledDate ? new Date(updates.scheduledDate) : null)
           : existingTodo.scheduledDate,

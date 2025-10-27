@@ -59,7 +59,7 @@ export async function PATCH(req: NextRequest) {
 
     // Validate updates with proper typing
     const allowedFields = [
-      'filter', 'sortBy', 'priorityFirst', 'advancedRecommendations', 'statsForNerds',
+      'filter', 'sortBy', 'priorityFirst', 'advancedRecommendations', 'statsForNerds', 'hideScheduledTasks',
       'numCategories', 'useCustomBase', 'customBase', 'useHalfWeight',
       'lastRecommendedTodoId', 'lastRecommendationTime',
       'lastRandomNumber', 'lastSelectedCategory', 'lastGeneratedSum', 

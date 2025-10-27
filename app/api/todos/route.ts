@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { title, description, priority, dueDate, completed, scheduledDate } = await req.json()
+    const { title, description, priority, dueDate, completed, scheduledDate, constantDueDays } = await req.json()
 
     if (!title) {
       return NextResponse.json(
@@ -54,13 +54,23 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // Enforce mutual exclusivity: cannot have both dueDate and constantDueDays
+    let finalDueDate = dueDate ? new Date(dueDate) : null
+    let finalConstantDueDays = constantDueDays !== undefined ? constantDueDays : null
+    
+    // If both are provided, prioritize constantDueDays and clear dueDate
+    if (finalConstantDueDays !== null && finalDueDate !== null) {
+      finalDueDate = null
+    }
+
     const todo = await prisma.todo.create({
       data: {
         title,
         description: description || null,
         priority: priority || 'medium',
-        dueDate: dueDate ? new Date(dueDate) : null,
+        dueDate: finalDueDate,
         scheduledDate: scheduledDate ? new Date(scheduledDate) : null,
+        constantDueDays: finalConstantDueDays,
         completed: completed || false,
         userId: session.user.id,
       }

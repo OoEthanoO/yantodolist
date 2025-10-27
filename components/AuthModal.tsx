@@ -78,7 +78,7 @@ export default function AuthModal({ onClose }: AuthModalProps) {
         {/* Close button */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-lg transition-colors hover:bg-opacity-80"
+          className="absolute top-4 right-4 p-2 rounded-lg transition-colors hover:bg-opacity-80 cursor-pointer"
           style={{color: 'var(--muted-foreground)', backgroundColor: 'var(--muted)'}}
         >
           <X size={20} />
@@ -174,7 +174,7 @@ export default function AuthModal({ onClose }: AuthModalProps) {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full py-3 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
           >
             {loading ? (
               <>
@@ -197,7 +197,7 @@ export default function AuthModal({ onClose }: AuthModalProps) {
               setIsLogin(!isLogin)
               setError('')
             }}
-            className="text-sm font-medium text-blue-500 hover:text-blue-600 transition-colors"
+            className="text-sm font-medium text-blue-500 hover:text-blue-600 transition-colors cursor-pointer"
           >
             {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
           </button>

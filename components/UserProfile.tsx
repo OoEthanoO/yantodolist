@@ -22,7 +22,7 @@ export default function UserProfile({ onSignInClick }: UserProfileProps) {
     return (
       <button
         onClick={onSignInClick}
-        className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 font-medium"
+        className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 font-medium cursor-pointer"
       >
         <UserIcon size={18} />
         Sign In
@@ -55,7 +55,7 @@ export default function UserProfile({ onSignInClick }: UserProfileProps) {
       </div>
       <button
         onClick={() => signOut()}
-        className="p-2 rounded-lg transition-colors hover:bg-red-50 text-red-600 hover:text-red-700"
+        className="p-2 rounded-lg transition-colors hover:bg-red-50 text-red-600 hover:text-red-700 cursor-pointer"
         title="Sign Out"
       >
         <LogOut size={20} />

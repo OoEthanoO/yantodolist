@@ -67,7 +67,12 @@ export async function POST(req: NextRequest) {
     for (const todo of todos) {
       let weight: number
 
-      if (todo.dueDate) {
+      // Handle constant due days first (overrides regular due date)
+      if (todo.constantDueDays !== undefined && todo.constantDueDays !== null) {
+        const daysDifference = todo.constantDueDays
+        const doubleDays = daysDifference > 0 ? daysDifference : 1 / (-daysDifference + 2)
+        weight = 1 / doubleDays
+      } else if (todo.dueDate) {
         const today = new Date()
         today.setHours(0, 0, 0, 0)
         const dueDate = new Date(todo.dueDate)

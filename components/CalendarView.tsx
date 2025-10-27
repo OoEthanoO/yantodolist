@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, startOfWeek, endOfWeek, addMonths, subMonths, addWeeks, subWeeks, addDays, subDays, isSameMonth } from 'date-fns'
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Check, Clock, AlertCircle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Check, Clock, AlertCircle, X } from 'lucide-react'
 
 interface Todo {
   id: string
@@ -27,6 +27,7 @@ type ViewMode = 'month' | 'week' | 'day'
 export default function CalendarView({ todos, onToggleTodo }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [viewMode, setViewMode] = useState<ViewMode>('month')
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null)
 
   const navigate = (direction: 'prev' | 'next') => {
     if (viewMode === 'month') {
@@ -89,7 +90,7 @@ export default function CalendarView({ todos, onToggleTodo }: CalendarViewProps)
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('prev')}
-            className="p-2 rounded-lg transition-colors hover:bg-opacity-70"
+            className="p-2 rounded-lg transition-colors hover:bg-opacity-70 cursor-pointer"
             style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
           >
             <ChevronLeft size={20} />
@@ -101,7 +102,7 @@ export default function CalendarView({ todos, onToggleTodo }: CalendarViewProps)
           
           <button
             onClick={() => navigate('next')}
-            className="p-2 rounded-lg transition-colors hover:bg-opacity-70"
+            className="p-2 rounded-lg transition-colors hover:bg-opacity-70 cursor-pointer"
             style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
           >
             <ChevronRight size={20} />
@@ -111,7 +112,7 @@ export default function CalendarView({ todos, onToggleTodo }: CalendarViewProps)
         <div className="flex items-center gap-3">
           <button
             onClick={goToToday}
-            className="px-4 py-2 rounded-lg transition-colors hover:bg-blue-600 bg-blue-500 text-white font-medium"
+            className="px-4 py-2 rounded-lg transition-colors hover:bg-blue-600 bg-blue-500 text-white font-medium cursor-pointer"
           >
             Today
           </button>
@@ -121,7 +122,7 @@ export default function CalendarView({ todos, onToggleTodo }: CalendarViewProps)
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
-                className={`px-3 py-2 rounded-md text-sm transition-colors capitalize ${
+                className={`px-3 py-2 rounded-md text-sm transition-colors capitalize cursor-pointer ${
                   viewMode === mode ? '' : 'hover:bg-opacity-70'
                 }`}
                 style={
@@ -163,7 +164,8 @@ export default function CalendarView({ todos, onToggleTodo }: CalendarViewProps)
               return (
                 <div
                   key={idx}
-                  className={`min-h-[120px] p-2 border-b border-r ${
+                  onClick={() => setSelectedDay(date)}
+                  className={`min-h-[120px] p-2 border-b border-r cursor-pointer transition-all hover:bg-opacity-50 hover:shadow-lg ${
                     !isCurrentMonth ? 'opacity-40' : ''
                   } ${isToday(date) ? 'bg-blue-50 dark:bg-blue-900/10' : ''}`}
                   style={{ borderColor: 'var(--border)' }}
@@ -191,8 +193,11 @@ export default function CalendarView({ todos, onToggleTodo }: CalendarViewProps)
                     {todosForDate.slice(0, 3).map((todo) => (
                       <button
                         key={todo.id}
-                        onClick={() => onToggleTodo(todo.id)}
-                        className={`w-full text-left px-2 py-1 rounded text-xs transition-all hover:shadow-md ${
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onToggleTodo(todo.id)
+                        }}
+                        className={`w-full text-left px-2 py-1 rounded text-xs transition-all hover:shadow-md cursor-pointer ${
                           todo.completed ? 'opacity-60' : ''
                         }`}
                         style={{
@@ -296,7 +301,7 @@ export default function CalendarView({ todos, onToggleTodo }: CalendarViewProps)
                           </div>
                           <button
                             onClick={() => onToggleTodo(todo.id)}
-                            className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${
+                            className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 cursor-pointer ${
                               todo.completed ? 'bg-green-500 border-green-500 text-white' : 'hover:border-green-500'
                             }`}
                             style={!todo.completed ? { borderColor: 'var(--border)' } : {}}
@@ -396,7 +401,7 @@ export default function CalendarView({ todos, onToggleTodo }: CalendarViewProps)
                     </div>
                     <button
                       onClick={() => onToggleTodo(todo.id)}
-                      className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ml-4 ${
+                      className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ml-4 cursor-pointer ${
                         todo.completed ? 'bg-green-500 border-green-500 text-white' : 'hover:border-green-500'
                       }`}
                       style={!todo.completed ? { borderColor: 'var(--border)' } : {}}
@@ -408,6 +413,133 @@ export default function CalendarView({ todos, onToggleTodo }: CalendarViewProps)
               ))}
             </div>
           )}
+        </div>
+      )}
+      
+      {/* Day Detail Modal */}
+      {selectedDay && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
+          onClick={() => setSelectedDay(null)}
+        >
+          <div 
+            className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-lg shadow-2xl"
+            style={{ backgroundColor: 'var(--card)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div 
+              className="sticky top-0 z-10 px-6 py-4 border-b flex items-center justify-between"
+              style={{ 
+                backgroundColor: 'var(--card)',
+                borderColor: 'var(--border)'
+              }}
+            >
+              <div>
+                <h3 className="text-xl font-bold" style={{ color: 'var(--foreground)' }}>
+                  {format(selectedDay, 'EEEE, MMMM d, yyyy')}
+                  {isToday(selectedDay) && (
+                    <span className="ml-3 text-sm px-3 py-1 rounded-full bg-blue-500 text-white">Today</span>
+                  )}
+                </h3>
+                <p className="text-sm mt-1" style={{ color: 'var(--muted-foreground)' }}>
+                  {getTodosForDate(selectedDay).length} {getTodosForDate(selectedDay).length === 1 ? 'task' : 'tasks'} scheduled
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedDay(null)}
+                className="p-2 rounded-lg transition-colors hover:bg-opacity-70 cursor-pointer"
+                style={{ backgroundColor: 'var(--muted)', color: 'var(--foreground)' }}
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6">
+              {getTodosForDate(selectedDay).length === 0 ? (
+                <div className="text-center py-12">
+                  <CalendarIcon size={48} className="mx-auto mb-4 opacity-50" style={{ color: 'var(--muted-foreground)' }} />
+                  <p className="text-lg" style={{ color: 'var(--muted-foreground)' }}>No tasks for this day</p>
+                  <p className="text-sm mt-2" style={{ color: 'var(--muted-foreground)' }}>
+                    Add tasks with due dates or scheduled dates to see them here
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {getTodosForDate(selectedDay).map((todo) => (
+                    <div
+                      key={todo.id}
+                      className={`p-4 rounded-lg border-l-4 transition-all hover:shadow-md ${todo.completed ? 'opacity-60' : ''}`}
+                      style={{
+                        backgroundColor: 'var(--muted)',
+                        borderColor: todo.priority === 'high' ? '#ef4444' : '#22c55e',
+                      }}
+                    >
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h4
+                            className={`text-lg font-medium mb-2 ${todo.completed ? 'line-through' : ''}`}
+                            style={{ color: 'var(--foreground)' }}
+                          >
+                            {todo.title}
+                          </h4>
+                          {todo.description && (
+                            <p className="text-sm mb-3" style={{ color: 'var(--muted-foreground)' }}>
+                              {todo.description}
+                            </p>
+                          )}
+                          <div className="flex flex-wrap items-center gap-2 text-sm">
+                            {todo.scheduledDate && isSameDay(new Date(todo.scheduledDate), selectedDay) && (
+                              <span
+                                className="flex items-center gap-1 px-3 py-1 rounded-full"
+                                style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
+                              >
+                                <CalendarIcon size={14} />
+                                Scheduled
+                              </span>
+                            )}
+                            {todo.dueDate && isSameDay(new Date(todo.dueDate), selectedDay) && (
+                              <span
+                                className="flex items-center gap-1 px-3 py-1 rounded-full"
+                                style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-foreground)' }}
+                              >
+                                <Clock size={14} />
+                                Due
+                              </span>
+                            )}
+                            <span
+                              className={`px-3 py-1 rounded-full text-xs ${
+                                todo.priority === 'high'
+                                  ? 'bg-red-100 text-red-700 border border-red-200'
+                                  : 'bg-green-100 text-green-700 border border-green-200'
+                              }`}
+                            >
+                              {todo.priority === 'high' ? 'High Priority' : 'Low Priority'}
+                            </span>
+                            <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                              Created {format(new Date(todo.createdAt), 'MMM d, yyyy')}
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => onToggleTodo(todo.id)}
+                          className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ml-4 cursor-pointer ${
+                            todo.completed ? 'bg-green-500 border-green-500 text-white' : 'hover:border-green-500'
+                          }`}
+                          style={!todo.completed ? { borderColor: 'var(--border)' } : {}}
+                        >
+                          {todo.completed && <Check size={18} />}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

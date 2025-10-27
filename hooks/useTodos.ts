@@ -11,6 +11,7 @@ export interface Todo {
   priority: 'low' | 'high'
   dueDate?: Date | null
   scheduledDate?: Date | null
+  constantDueDays?: number | null
   createdAt: Date
   updatedAt: Date
   userId: string
