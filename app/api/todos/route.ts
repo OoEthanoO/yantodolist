@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
       data: {
         title,
         description: description || null,
-        priority: priority || 'medium',
+        priority: priority || 'low',
         dueDate: finalDueDate,
         scheduledDate: scheduledDate ? new Date(scheduledDate) : null,
         constantDueDays: finalConstantDueDays,

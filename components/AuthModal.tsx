@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
-import { LogIn, UserPlus, Mail, Lock, User, Loader2, X } from 'lucide-react'
+import { LogIn, UserPlus, Mail, Lock, User, Loader2, X, CheckCircle2, AlertCircle } from 'lucide-react'
 
 interface AuthModalProps {
   onClose: () => void
@@ -15,11 +15,14 @@ export default function AuthModal({ onClose }: AuthModalProps) {
   const [name, setName] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [verificationSent, setVerificationSent] = useState(false)
+  const [resendingVerification, setResendingVerification] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
+    setVerificationSent(false)
 
     try {
       if (isLogin) {
@@ -31,7 +34,13 @@ export default function AuthModal({ onClose }: AuthModalProps) {
         })
 
         if (result?.error) {
-          setError('Invalid email or password')
+          // Check if it's a verification error
+          if (result.error.includes('verify your email')) {
+            setError(result.error)
+            setVerificationSent(false) // Show resend option
+          } else {
+            setError('Invalid email or password')
+          }
         } else {
           onClose()
         }
@@ -48,24 +57,46 @@ export default function AuthModal({ onClose }: AuthModalProps) {
         if (!response.ok) {
           setError(data.error || 'Something went wrong')
         } else {
-          // Auto sign in after signup
-          const result = await signIn('credentials', {
-            email,
-            password,
-            redirect: false,
-          })
-
-          if (result?.error) {
-            setError('Account created but failed to sign in')
-          } else {
-            onClose()
-          }
+          // Show verification message
+          setVerificationSent(true)
+          setError('')
         }
       }
     } catch (err) {
       setError('Something went wrong. Please try again.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleResendVerification = async () => {
+    if (!email) {
+      setError('Please enter your email address')
+      return
+    }
+
+    setResendingVerification(true)
+    setError('')
+
+    try {
+      const response = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        setVerificationSent(true)
+        setError('')
+      } else {
+        setError(data.error || 'Failed to resend verification email')
+      }
+    } catch (err) {
+      setError('Something went wrong. Please try again.')
+    } finally {
+      setResendingVerification(false)
     }
   }
 
@@ -96,8 +127,48 @@ export default function AuthModal({ onClose }: AuthModalProps) {
 
         {/* Error message */}
         {error && (
-          <div className="mb-4 p-3 rounded-lg bg-red-100 text-red-700 text-sm">
-            {error}
+          <div className="mb-4 p-3 rounded-lg bg-red-100 text-red-700 text-sm flex items-start gap-2">
+            <AlertCircle size={18} className="flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              {error}
+              {error.includes('verify your email') && (
+                <button
+                  onClick={handleResendVerification}
+                  disabled={resendingVerification}
+                  className="block mt-2 text-blue-600 hover:text-blue-700 font-medium underline disabled:opacity-50"
+                >
+                  {resendingVerification ? 'Sending...' : 'Resend verification email'}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Success message for verification email sent */}
+        {verificationSent && (
+          <div className="mb-4 p-4 rounded-lg bg-green-100 text-green-800 text-sm">
+            <div className="flex items-start gap-2">
+              <CheckCircle2 size={18} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold mb-1">Check your email! 📧</p>
+                <p className="mb-2">
+                  We've sent a verification link to <strong>{email}</strong>
+                </p>
+                <p className="text-xs text-green-700 mb-1">
+                  Click the link in the email to verify your account and start using YanToDoList.
+                </p>
+                <p className="text-xs text-green-600 italic">
+                  💡 Don't see it? Check your spam/junk folder
+                </p>
+                <button
+                  onClick={handleResendVerification}
+                  disabled={resendingVerification}
+                  className="mt-3 text-green-700 hover:text-green-800 font-medium underline text-xs disabled:opacity-50"
+                >
+                  {resendingVerification ? 'Sending...' : "Didn't receive it? Resend email"}
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -196,6 +267,7 @@ export default function AuthModal({ onClose }: AuthModalProps) {
             onClick={() => {
               setIsLogin(!isLogin)
               setError('')
+              setVerificationSent(false)
             }}
             className="text-sm font-medium text-blue-500 hover:text-blue-600 transition-colors cursor-pointer"
           >

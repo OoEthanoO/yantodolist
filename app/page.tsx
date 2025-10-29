@@ -15,6 +15,7 @@ import UserProfile from '@/components/UserProfile'
 import LocalDataMigration from '@/components/LocalDataMigration'
 import CalendarView from '@/components/CalendarView'
 import AnalyticsView from '@/components/AnalyticsView'
+import EmailVerificationCheck from '@/components/EmailVerificationCheck'
 
 interface Todo {
   id: string
@@ -711,6 +712,8 @@ export default function Home() {
           completed: boolean
           priority: 'low' | 'high'
           dueDate: Date | null
+          scheduledDate?: Date | null
+          constantDueDays?: number | null
         }
         
         const importedTasks: ImportedTask[] = data.tasks.map((task: any, index: number) => {
@@ -721,6 +724,10 @@ export default function Home() {
               completed: Boolean(task.completed),
               priority: (['low', 'high'].includes(task.priority) ? task.priority : 'low') as 'low' | 'high',
               dueDate: task.dueDate ? new Date(task.dueDate) : null,
+              scheduledDate: task.scheduledDate ? new Date(task.scheduledDate) : null,
+              constantDueDays: task.constantDueDays !== undefined && task.constantDueDays !== null 
+                ? parseInt(String(task.constantDueDays)) 
+                : null,
             }
           } catch (taskError) {
             console.warn(`Error parsing task ${index}:`, taskError)
@@ -941,6 +948,9 @@ export default function Home() {
 
   return (
     <main className="min-h-screen">
+      {/* Email Verification Check Banner */}
+      <EmailVerificationCheck />
+      
       {/* Notification Toast */}
       {notification && (
         <div 
