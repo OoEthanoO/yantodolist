@@ -202,6 +202,33 @@ export default function Home() {
     }
   }, [])
 
+  // Cleanup past scheduled dates on load and periodically
+  useEffect(() => {
+    if (!isAuthenticated) return
+
+    const cleanupPastScheduledDates = async () => {
+      try {
+        await fetch('/api/todos/cleanup-scheduled', {
+          method: 'POST',
+        })
+        // The cleanup endpoint will modify the database
+        // SWR will automatically refetch and update the UI
+      } catch (error) {
+        console.error('Error cleaning up scheduled dates:', error)
+      }
+    }
+
+    // Run cleanup on mount
+    cleanupPastScheduledDates()
+
+    // Run cleanup daily (every 24 hours)
+    const intervalId = setInterval(cleanupPastScheduledDates, 24 * 60 * 60 * 1000)
+
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [isAuthenticated])
+
   // Save todos to localStorage whenever todos change (for offline backup)
   useEffect(() => {
     if (todos.length > 0) {
